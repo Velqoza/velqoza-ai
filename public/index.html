@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090b12">
+  <title>VELQOZA AI — Build websites with a conversation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#"><span class="brand-mark">V</span><span>VELQOZA<span class="brand-ai"> AI</span></span></a>
+      <div class="top-center"><span class="status-dot"></span> AI WEBSITE BUILDER</div>
+      <a class="top-link" href="https://velqoza.com" target="_blank" rel="noreferrer">VELQOZA.COM ↗</a>
+    </header>
+
+    <main class="workspace">
+      <aside class="chat-panel">
+        <div class="panel-heading">
+          <div><p class="eyebrow">YOUR CREATIVE WORKSPACE</p><h1>What are we<br><span>building today?</span></h1></div>
+          <span class="sparkle">✳</span>
+        </div>
+        <p class="intro">Describe your idea. VELQOZA AI will turn it into a website you can preview and refine.</p>
+
+        <div class="chat-log" id="chatLog" aria-live="polite">
+          <div class="welcome-card">
+            <div class="bot-avatar">V✳</div>
+            <div><strong>Welcome to VELQOZA AI</strong><p>Tell me what you want to create. Be as specific as you like — style, colors, pages, features.</p></div>
+          </div>
+        </div>
+
+        <div class="prompt-area">
+          <div class="prompt-tools"><span>✦ &nbsp; CREATE WITH AI</span><span id="connectionLabel">Checking connection…</span></div>
+          <textarea id="promptInput" rows="3" placeholder="Build a modern website for a luxury car dealership..." aria-label="Describe the website you want"></textarea>
+          <div class="prompt-bottom">
+            <span class="hint">Enter to send · Shift + Enter for new line</span>
+            <button id="sendBtn" class="send-btn" aria-label="Send prompt">↑</button>
+          </div>
+        </div>
+        <div class="suggestions">
+          <button class="suggestion">A luxury car dealership</button>
+          <button class="suggestion">A fashion brand landing page</button>
+          <button class="suggestion">A modern SaaS dashboard</button>
+        </div>
+      </aside>
+
+      <section class="preview-panel">
+        <div class="preview-toolbar">
+          <div class="preview-tabs">
+            <button class="tab active" data-view="preview">◉ &nbsp; Preview</button>
+            <button class="tab" data-view="code">{ } &nbsp; Code</button>
+          </div>
+          <div class="preview-actions">
+            <span class="preview-label" id="previewLabel">LIVE PREVIEW</span>
+            <button class="icon-btn" id="refreshBtn" title="Refresh preview">↻</button>
+            <button class="download-btn" id="downloadBtn" disabled>↓ &nbsp; Download</button>
+          </div>
+        </div>
+        <div class="preview-content" id="previewView">
+          <div class="empty-preview">
+            <div class="empty-orbit"><div class="orbit-core">V</div><i></i><b></b></div>
+            <h2>Your website will appear here</h2>
+            <p>Describe your idea in the chat and watch it come to life.</p>
+            <div class="empty-tags"><span>HTML</span><span>CSS</span><span>JavaScript</span></div>
+          </div>
+        </div>
+        <div class="code-view hidden" id="codeView">
+          <div class="file-tabs" id="fileTabs">
+            <button class="file-tab active" data-file="index.html">index.html</button>
+            <button class="file-tab" data-file="style.css">style.css</button>
+            <button class="file-tab" data-file="script.js">script.js</button>
+          </div>
+          <textarea id="codeEditor" spellcheck="false" aria-label="Code editor" placeholder="Your generated code will appear here..."></textarea>
+          <div class="code-footer"><span id="codeStatus">No project generated yet</span><button id="saveCodeBtn">Apply code changes</button></div>
+        </div>
+      </section>
+    </main>
+    <footer><span>© 2026 VELQOZA AI</span><span>IDEAS INTO EXPERIENCES.</span><span>BUILT FOR CREATORS</span></footer>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
