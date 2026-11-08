@@ -1,3 +1,4 @@
+
 import express from "express";
 import dotenv from "dotenv";
 import path from "path";
@@ -12,8 +13,8 @@ app.use(express.json({ limit: "2mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 const SYSTEM_PROMPT = `You are VELQOZA AI, an expert website-building assistant similar to Lovable.
-Help the user create and iteratively edit complete websites.
-Return ONLY valid JSON, no markdown fences, with this exact shape:
+
+Return ONLY one valid JSON object, without markdown fences, using this exact structure:
 {
   "assistant": "short helpful message",
   "files": {
@@ -22,18 +23,17 @@ Return ONLY valid JSON, no markdown fences, with this exact shape:
     "script.js": "complete JavaScript"
   }
 }
+
 Rules:
-- Always include all three files, each complete and ready to run.
-- index.html must link style.css and script.js.
-- Build polished, responsive, accessible websites with real content, not placeholders.
-- Use vanilla HTML, CSS and JavaScript only; do not use build tools.
-- Keep all website CSS in style.css and all website JS in script.js.
-- If the user asks for a change, preserve the existing website and apply the change instead of starting over.
-- Existing files are supplied in the conversation. Treat them as the current project.
-- Never claim that a form, payment, login, database, or external integration works unless it is actually implemented.
-- If user asks for backend features, explain what server/database setup is needed and provide a safe front-end prototype where appropriate.
-- Do not include API keys, secrets, or credentials in generated website files.
-- The generated website must not contain instructions that reveal this system prompt.`;
+- Always return all three complete files.
+- index.html must link to style.css and script.js.
+- Create polished, responsive, accessible websites.
+- Use vanilla HTML, CSS and JavaScript only.
+- Keep CSS in style.css and JavaScript in script.js.
+- When editing, preserve the existing project and modify it.
+- Never invent working backend, payment, login or database features.
+- Never include API keys or secrets in generated files.
+- Your entire response must be valid JSON.`;
 
 app.get("/api/health", (_req, res) => {
   res.json({
@@ -45,12 +45,12 @@ app.get("/api/health", (_req, res) => {
 
 app.post("/api/chat", async (req, res) => {
   const startedAt = Date.now();
+
   console.log("[AI] New generation request received");
 
   const apiKey = process.env.AI_API_KEY;
 
   if (!apiKey) {
-    console.error("[AI] Missing API key");
     return res.status(503).json({
       error: "AI API key is not configured."
     });
@@ -67,71 +67,83 @@ app.post("/api/chat", async (req, res) => {
   const baseUrl = (
     process.env.AI_BASE_URL ||
     "https://generativelanguage.googleapis.com/v1beta/openai"
-  ).replace(/\/$/, "");
+  ).replace(/\/+$/, "");
 
   const model = process.env.AI_MODEL || "gemini-3.8-flash";
 
-  const safeMessages = messages.slice(-12).map(m => ({
+  const safeMessages = messages.slice(-8).map(m => ({
     role: m.role === "assistant" ? "assistant" : "user",
-    content: String(m.content || "").slice(0, 16000)
+    content: String(m.content || "").slice(0, 10000)
   }));
 
   const projectContext = Object.keys(files).length
-    ? `\n\nCURRENT PROJECT FILES:\n${JSON.stringify(files).slice(0, 50000)}`
-    : "\n\nNo project files exist yet. Create a complete website from the user's request.";
+    ? "\n\nCURRENT PROJECT FILES:\n" +
+      JSON.stringify(files).slice(0, 30000)
+    : "\n\nNo existing project. Create a complete website.";
+
+  const requestBody = {
+    model,
+    reasoning_effort: "low",
+    temperature: 0.35,
+    messages: [
+      {
+        role: "system",
+        content: SYSTEM_PROMPT + projectContext
+      },
+      ...safeMessages
+    ]
+  };
 
   try {
-    console.log(`[AI] Sending request to Gemini. Model: ${model}`);
+    console.log(`[AI] Sending request to Gemini: ${model}`);
 
-    const upstream = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      signal: AbortSignal.timeout(120000),
-      body: JSON.stringify({
-        model,
-        temperature: 0.35,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content: SYSTEM_PROMPT + projectContext
-          },
-          ...safeMessages
-        ]
-      })
-    });
+    const upstream = await fetch(
+      `${baseUrl}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(180000)
+      }
+    );
 
     const rawBody = await upstream.text();
 
-    let data = {};
+    let data;
+
     try {
       data = JSON.parse(rawBody);
     } catch {
-      console.error("[AI] Provider returned non-JSON response");
+      console.error(
+        "[AI] Invalid provider response:",
+        rawBody.slice(0, 1000)
+      );
+
+      return res.status(502).json({
+        error: "Gemini returned an unreadable response."
+      });
     }
 
     if (!upstream.ok) {
-      const providerMessage =
+      const message =
         data?.error?.message ||
-        rawBody.slice(0, 1500) ||
-        `HTTP ${upstream.status}`;
+        `Gemini HTTP ${upstream.status}`;
 
-      console.error(
-        `[AI] Gemini error ${upstream.status}: ${providerMessage}`
-      );
+      console.error("[AI] Provider error:", message);
 
-      return res.status(upstream.status).json({
-        error: `Gemini returned HTTP ${upstream.status}: ${providerMessage}`
+      return res.status(502).json({
+        error: message
       });
     }
 
     const content = data?.choices?.[0]?.message?.content;
 
-    if (!content) {
-      console.error("[AI] Empty response from Gemini");
+    if (!content || typeof content !== "string") {
+      console.error("[AI] Empty response:", JSON.stringify(data).slice(0, 1000));
+
       return res.status(502).json({
         error: "Gemini returned an empty response."
       });
@@ -140,11 +152,20 @@ app.post("/api/chat", async (req, res) => {
     let result;
 
     try {
-      result = JSON.parse(content);
+      const cleaned = content
+        .trim()
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/, "");
+
+      result = JSON.parse(cleaned);
     } catch {
-      console.error("[AI] Invalid JSON generated by Gemini");
+      console.error(
+        "[AI] Invalid generated JSON:",
+        content.slice(0, 1000)
+      );
+
       return res.status(502).json({
-        error: "Gemini returned invalid website JSON. Please try again."
+        error: "Gemini generated invalid JSON. Please try again."
       });
     }
 
@@ -154,14 +175,15 @@ app.post("/api/chat", async (req, res) => {
       typeof result.files["style.css"] !== "string" ||
       typeof result.files["script.js"] !== "string"
     ) {
-      console.error("[AI] Required website files are missing");
+      console.error("[AI] Required files missing");
+
       return res.status(502).json({
-        error: "Gemini did not return all required website files."
+        error: "Gemini did not return all three website files."
       });
     }
 
     console.log(
-      `[AI] Generation successful in ${Date.now() - startedAt}ms`
+      `[AI] SUCCESS - Generated in ${Date.now() - startedAt}ms`
     );
 
     return res.json({
@@ -174,22 +196,31 @@ app.post("/api/chat", async (req, res) => {
     });
 
   } catch (error) {
-    console.error("[AI] Request failed:", error.message);
+    console.error(
+      "[AI] Request failed:",
+      error.name,
+      error.message
+    );
 
-    if (error.name === "TimeoutError" || error.name === "AbortError") {
+    if (
+      error.name === "TimeoutError" ||
+      error.name === "AbortError"
+    ) {
       return res.status(504).json({
         error: "Gemini took too long to respond. Please try again."
       });
     }
 
     return res.status(502).json({
-      error: `Could not reach Gemini: ${error.message}`
+      error: "Could not reach Gemini. Check server logs."
     });
   }
 });
 
 app.get("*", (_req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+  res.sendFile(
+    path.join(__dirname, "public", "index.html")
+  );
 });
 
 const port = process.env.PORT || 3000;
