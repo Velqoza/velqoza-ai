@@ -47,6 +47,8 @@ const getBaseUrl = () =>
 
 const getModel = () => process.env.AI_MODEL || "gemini-3.8-flash";
 
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 function extractJson(content) {
   const cleaned = String(content || "")
     .trim()
@@ -65,6 +67,60 @@ function extractJson(content) {
 
     throw new Error("AI response did not contain valid JSON.");
   }
+}
+
+// RETRY SYSTEM
+async function fetchWithRetry(url, options, label = "AI") {
+  const delays = [3000, 7000];
+  const retryableStatuses = [429, 500, 502, 503, 504];
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      console.log(`[${label}] Attempt ${attempt + 1}/3`);
+
+      const response = await fetch(url, options);
+
+      if (
+        !response.ok &&
+        retryableStatuses.includes(response.status) &&
+        attempt < 2
+      ) {
+        const delay = delays[attempt];
+
+        console.log(
+          `[${label}] HTTP ${response.status}. Retrying in ${delay / 1000}s...`
+        );
+
+        await response.text();
+        await sleep(delay);
+        continue;
+      }
+
+      return response;
+    } catch (error) {
+      // Do not repeat a full 180-second timeout automatically.
+      if (
+        error.name === "TimeoutError" ||
+        error.name === "AbortError"
+      ) {
+        throw error;
+      }
+
+      if (attempt >= 2) {
+        throw error;
+      }
+
+      const delay = delays[attempt];
+
+      console.log(
+        `[${label}] Network error: ${error.message}. Retrying in ${delay / 1000}s...`
+      );
+
+      await sleep(delay);
+    }
+  }
+
+  throw new Error("All retry attempts failed.");
 }
 
 // HEALTH CHECK
@@ -279,15 +335,19 @@ app.post("/api/chat", async (req, res) => {
       "bytes"
     );
 
-    const upstream = await fetch(`${getBaseUrl()}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
+    const upstream = await fetchWithRetry(
+      `${getBaseUrl()}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(180000)
       },
-      body: JSON.stringify(requestBody),
-      signal: AbortSignal.timeout(180000)
-    });
+      "AI"
+    );
 
     const rawBody = await upstream.text();
 
@@ -311,7 +371,7 @@ app.post("/api/chat", async (req, res) => {
 
       console.error("[AI] Provider error:", message);
 
-      return res.status(502).json({
+      return res.status(upstream.status === 503 ? 503 : 502).json({
         error: `Gemini returned HTTP ${upstream.status}: ${message}`
       });
     }
@@ -366,7 +426,7 @@ app.post("/api/chat", async (req, res) => {
 
     if (error.name === "TimeoutError" || error.name === "AbortError") {
       return res.status(504).json({
-        error: "Gemini took too long to respond. Try a shorter request."
+        error: "Gemini took too long to respond. Try again in a moment."
       });
     }
 
