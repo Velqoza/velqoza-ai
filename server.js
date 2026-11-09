@@ -27,12 +27,18 @@ Return ONLY one valid JSON object, without markdown fences:
 Rules:
 - Always return all three complete files.
 - index.html must link to style.css and script.js.
-- Create polished, responsive, accessible websites with real content.
+- Create polished, premium, responsive and accessible websites.
 - Use vanilla HTML, CSS and JavaScript only.
 - Keep CSS in style.css and JavaScript in script.js.
 - When editing, preserve the existing project and modify it.
 - Never pretend backend, payment, login or database features work unless implemented.
 - Never include API keys or secrets in generated files.
+- Generate high-quality websites with efficient, clean code.
+- Avoid unnecessarily long code, repeated CSS and duplicated sections.
+- Do not use base64 images.
+- Use optimized CSS and JavaScript.
+- Prioritize visual quality, responsive design and working interactions.
+- Keep all three files complete, but avoid unnecessary explanations.
 - Return valid JSON only.`;
 
 const getBaseUrl = () =>
@@ -82,28 +88,25 @@ app.get("/api/test-gemini", async (_req, res) => {
   console.log("[TEST] Starting Gemini connection test");
 
   try {
-    const response = await fetch(
-      `${getBaseUrl()}/chat/completions`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.AI_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: getModel(),
-          messages: [
-            {
-              role: "user",
-              content: "Reply with only the word OK."
-            }
-          ],
-          max_tokens: 20,
-          reasoning_effort: "low"
-        }),
-        signal: AbortSignal.timeout(45000)
-      }
-    );
+    const response = await fetch(`${getBaseUrl()}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.AI_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: getModel(),
+        messages: [
+          {
+            role: "user",
+            content: "Reply with only the word OK."
+          }
+        ],
+        max_tokens: 20,
+        reasoning_effort: "low"
+      }),
+      signal: AbortSignal.timeout(45000)
+    });
 
     const body = await response.text();
 
@@ -115,7 +118,6 @@ app.get("/api/test-gemini", async (_req, res) => {
       status: response.status,
       response: body.slice(0, 1200)
     });
-
   } catch (error) {
     console.error("[TEST] Failed:", error.name, error.message);
 
@@ -138,26 +140,24 @@ app.get("/api/test-json", async (_req, res) => {
   console.log("[TEST JSON] Starting JSON test");
 
   try {
-    const response = await fetch(
-      `${getBaseUrl()}/chat/completions`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.AI_API_KEY}`,
-          "Content-Type": "application/json"
+    const response = await fetch(`${getBaseUrl()}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.AI_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: getModel(),
+        reasoning_effort: "low",
+        temperature: 0.1,
+        max_tokens: 1200,
+        response_format: {
+          type: "json_object"
         },
-        body: JSON.stringify({
-          model: getModel(),
-          reasoning_effort: "low",
-          temperature: 0.1,
-          max_tokens: 1200,
-          response_format: {
-            type: "json_object"
-          },
-          messages: [
-            {
-              role: "system",
-              content: `Return ONLY JSON with this exact structure:
+        messages: [
+          {
+            role: "system",
+            content: `Return ONLY JSON with this exact structure:
 {
   "assistant": "Test successful",
   "files": {
@@ -166,16 +166,15 @@ app.get("/api/test-json", async (_req, res) => {
     "script.js": "console.log('Hello');"
   }
 }`
-            },
-            {
-              role: "user",
-              content: "Generate the required JSON."
-            }
-          ]
-        }),
-        signal: AbortSignal.timeout(90000)
-      }
-    );
+          },
+          {
+            role: "user",
+            content: "Generate the required JSON."
+          }
+        ]
+      }),
+      signal: AbortSignal.timeout(90000)
+    });
 
     const raw = await response.text();
 
@@ -212,7 +211,6 @@ app.get("/api/test-json", async (_req, res) => {
           }
         : null
     });
-
   } catch (error) {
     console.error("[TEST JSON] Failed:", error.name, error.message);
 
@@ -281,18 +279,15 @@ app.post("/api/chat", async (req, res) => {
       "bytes"
     );
 
-    const upstream = await fetch(
-      `${getBaseUrl()}/chat/completions`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(180000)
-      }
-    );
+    const upstream = await fetch(`${getBaseUrl()}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(requestBody),
+      signal: AbortSignal.timeout(180000)
+    });
 
     const rawBody = await upstream.text();
 
@@ -301,10 +296,7 @@ app.post("/api/chat", async (req, res) => {
     try {
       data = JSON.parse(rawBody);
     } catch {
-      console.error(
-        "[AI] Invalid provider response:",
-        rawBody.slice(0, 1200)
-      );
+      console.error("[AI] Invalid provider response:", rawBody.slice(0, 1200));
 
       return res.status(502).json({
         error: "Gemini returned an unreadable response."
@@ -327,10 +319,7 @@ app.post("/api/chat", async (req, res) => {
     const content = data?.choices?.[0]?.message?.content;
 
     if (typeof content !== "string" || !content.trim()) {
-      console.error(
-        "[AI] Empty response:",
-        JSON.stringify(data).slice(0, 1200)
-      );
+      console.error("[AI] Empty response:", JSON.stringify(data).slice(0, 1200));
 
       return res.status(502).json({
         error: "Gemini returned an empty response."
@@ -342,10 +331,7 @@ app.post("/api/chat", async (req, res) => {
     try {
       result = extractJson(content);
     } catch {
-      console.error(
-        "[AI] Invalid generated JSON:",
-        content.slice(0, 1600)
-      );
+      console.error("[AI] Invalid generated JSON:", content.slice(0, 1600));
 
       return res.status(502).json({
         error: "Gemini did not return valid website JSON."
@@ -365,9 +351,7 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    console.log(
-      `[AI] SUCCESS - Generated in ${Date.now() - startedAt}ms`
-    );
+    console.log(`[AI] SUCCESS - Generated in ${Date.now() - startedAt}ms`);
 
     return res.json({
       assistant: String(result.assistant || "Your website is ready."),
@@ -377,18 +361,10 @@ app.post("/api/chat", async (req, res) => {
         "script.js": result.files["script.js"]
       }
     });
-
   } catch (error) {
-    console.error(
-      "[AI] Request failed:",
-      error.name,
-      error.message
-    );
+    console.error("[AI] Request failed:", error.name, error.message);
 
-    if (
-      error.name === "TimeoutError" ||
-      error.name === "AbortError"
-    ) {
+    if (error.name === "TimeoutError" || error.name === "AbortError") {
       return res.status(504).json({
         error: "Gemini took too long to respond. Try a shorter request."
       });
@@ -402,9 +378,7 @@ app.post("/api/chat", async (req, res) => {
 
 // FRONTEND
 app.get("*", (_req, res) => {
-  res.sendFile(
-    path.join(__dirname, "public", "index.html")
-  );
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 const port = process.env.PORT || 3000;
