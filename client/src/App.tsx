@@ -920,13 +920,25 @@ export default function App() {
       <nav className={`nav-links ${mobileMenu?'nav-open':''}`}>
         <button className="nav-studio" onClick={openStudio}><BrainCircuit size={16}/> {t("AI Studio")}</button>
         <a href="#features" onClick={()=>setMobileMenu(false)}>{t("Features")}</a><a href="#workflow" onClick={()=>setMobileMenu(false)}>{t("How it works")}</a><a href="#pricing" onClick={()=>setMobileMenu(false)}>{t("Pricing")}</a>
-        <button className="mobile-nav-close" onClick={()=>setMobileMenu(false)}><X size={18}/></button>
+        <div className="mobile-nav-account">
+          {user ? <>
+            <button onClick={()=>{setMobileMenu(false);setDisplayNameDraft(user.displayName||'');setAccountFeedback('');setSavedAccounts(api.savedAccounts());setAccountOpen(true)}}><UserRound size={19}/>{t("Account Control")}</button>
+            <button onClick={()=>{setMobileMenu(false);setShowProjects(true)}}><FolderOpen size={19}/>{t("My projects")} <span className="mobile-nav-count">{projectCount}</span></button>
+            <button onClick={()=>{setMobileMenu(false);void showWallet()}}><Zap size={19}/>{t("Credits")} <span className="mobile-nav-count">{walletBalance===null?'—':walletBalance}</span></button>
+            {user.isAdmin && <button onClick={()=>{setMobileMenu(false);setAdminOpen(true);void loadAdmin()}}><ShieldCheck size={19}/>{t("Admin")}</button>}
+            <button onClick={()=>{setMobileMenu(false);logoutCurrent()}}><LogOut size={19}/>{t("Log out")}</button>
+          </> : <>
+            <button onClick={()=>{setMobileMenu(false);setAuthMode('login');setAuthOpen(true)}}><UserRound size={19}/>{t("Log in")}</button>
+            <button onClick={()=>{setMobileMenu(false);setAuthMode('signup');setAuthOpen(true)}}><UserPlus size={19}/>{t("Get started")}</button>
+          </>}
+        </div>
+        <button className="mobile-nav-close" aria-label={t("Close")} onClick={()=>setMobileMenu(false)}><X size={18}/></button>
       </nav>
       <div className="top-actions">
         <label className="language-switcher" title={t("Choose a language")}><Globe2 size={16}/><select aria-label={t("Language")} value={uiLanguage} onChange={e=>setUiLanguage(e.target.value as UiLanguage)}>{languageOptions.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-        {user ? <>{user.isAdmin && <button className="studio-top-btn" onClick={()=>{setAdminOpen(true);void loadAdmin()}}><ShieldCheck size={15}/> {t("Admin")}</button>}<button className="studio-top-btn" onClick={openStudio}><MessageSquare size={15}/> {t("Chat")}</button><button className="nav-projects" onClick={()=>setShowProjects(true)}><FolderOpen size={16}/> {t("My projects")} <span className="count-pill">{projectCount}</span></button><button className="studio-top-btn" onClick={showWallet}><Zap size={15}/> {walletBalance===null?t("Credits"):`${walletBalance} ${t("Credits")}`}</button><button className="studio-top-btn" onClick={()=>{setDisplayNameDraft(user.displayName||'');setSavedAccounts(api.savedAccounts());setAccountOpen(true)}}><UserRound size={15}/> {t("Account")}</button><button className="avatar" title="Account Control / Switch Account" aria-label="Open Account Control" onClick={()=>{setDisplayNameDraft(user.displayName||'');setAccountFeedback('');setSavedAccounts(api.savedAccounts());setAccountOpen(true)}}>{(user.displayName||user.email).slice(0,1).toUpperCase()}</button><button className="icon-btn" title="Log out" onClick={logoutCurrent}><LogOut size={17}/></button></> : <><button className="text-btn" onClick={()=>{setAuthMode('login');setAuthOpen(true)}}>{t("Log in")}</button><button className="small-cta" onClick={()=>{setAuthMode('signup');setAuthOpen(true)}}>Get started <ArrowUpRight size={15}/></button></>}
+        {user ? <>{user.isAdmin && <button className="studio-top-btn" onClick={()=>{setAdminOpen(true);void loadAdmin()}}><ShieldCheck size={15}/> {t("Admin")}</button>}<button className="studio-top-btn" onClick={openStudio}><MessageSquare size={15}/> {t("Chat")}</button><button className="nav-projects" onClick={()=>setShowProjects(true)}><FolderOpen size={16}/> {t("My projects")} <span className="count-pill">{projectCount}</span></button><button className="studio-top-btn" onClick={showWallet}><Zap size={15}/> {walletBalance===null?t("Credits"):`${walletBalance} ${t("Credits")}`}</button><button className="studio-top-btn" onClick={()=>{setDisplayNameDraft(user.displayName||'');setSavedAccounts(api.savedAccounts());setAccountOpen(true)}}><UserRound size={15}/> {t("Account")}</button><button className="avatar" title={t("Account Control")} aria-label={t("Account Control")} onClick={()=>{setDisplayNameDraft(user.displayName||'');setAccountFeedback('');setSavedAccounts(api.savedAccounts());setAccountOpen(true)}}>{(user.displayName||user.email).slice(0,1).toUpperCase()}</button><button className="icon-btn" title="Log out" onClick={logoutCurrent}><LogOut size={17}/></button></> : <><button className="text-btn" onClick={()=>{setAuthMode('login');setAuthOpen(true)}}>{t("Log in")}</button><button className="small-cta" onClick={()=>{setAuthMode('signup');setAuthOpen(true)}}>Get started <ArrowUpRight size={15}/></button></>}
       </div>
-      <button className="mobile-menu-btn" onClick={()=>setMobileMenu(!mobileMenu)}><Menu/></button>
+      <button className="mobile-menu-btn" aria-label={mobileMenu?t("Close"):t("Menu")} aria-expanded={mobileMenu} onClick={()=>setMobileMenu(!mobileMenu)}>{mobileMenu?<X size={22}/>:<Menu size={22}/>}</button>
     </header>
 
     {tab === 'studio' ? <main className="studio-shell">
