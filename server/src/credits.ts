@@ -3,12 +3,22 @@ import { db } from './db.js'
 
 // These are sample internal prices, NOT finalized based on provider costs.
 export const COSTS = {generate: 20, edit: 8, studio: 2} as const
+// Catalog quotas are examples for pricing review, NOT activated entitlements.
+// Credits and request allowances are separate; enabling either requires a
+// verified payment and an explicit fulfillment workflow.
 export const PACKAGES = [
-  { id:'starter', label:'Starter', usdCents:2500, credits:100 },
-  { id:'pro', label:'Pro', usdCents:5900, credits:300 },
-  { id:'business', label:'Business', usdCents:11900, credits:700 },
-  { id:'agency', label:'Agency', usdCents:24900, credits:1600 }
+  { id:'starter',label:'Starter',usdCents:2500,credits:100,messages:25,edits:8,generations:3 },
+  { id:'pro',label:'Pro',usdCents:5900,credits:300,messages:100,edits:30,generations:12 },
+  { id:'business',label:'Business',usdCents:11900,credits:700,messages:300,edits:90,generations:35 },
+  { id:'agency',label:'Agency',usdCents:24900,credits:1600,messages:1000,edits:250,generations:100 }
 ] as const
+export const CUSTOM_LIMITS = {
+ credits:{min:10,max:1_000_000},
+ messages:{min:1,max:1_000_000},
+ edits:{min:1,max:1_000_000},
+ generations:{min:1,max:1_000_000}
+} as const
+
 
 export function getCredits(userId:string) {
   const row = db.prepare('SELECT balance FROM credit_wallets WHERE user_id=?').get(userId) as {balance:number}|undefined
