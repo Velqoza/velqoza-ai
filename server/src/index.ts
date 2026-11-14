@@ -16,7 +16,7 @@ import { studioPluginCatalog, runStudioPlugins } from './studioPlugins.js'
 import type { AuthRequest, SiteCode } from './types.js'
 import { validateExtraFiles } from './projectFiles.js'
 import { COSTS, PACKAGES, CUSTOM_LIMITS, CUSTOM_UNIT_PRICES_CENTS, calculateCustomPrice, getCredits, getCreditHistory, chargeAI, refundAI, purchasedQuota, redeemVoucher } from './credits.js'
-import { paypalReady, paypalMode, createCheckout, captureCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot } from './payments.js'
+import { paypalReady, paypalMode, createCheckout, captureCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, verifyPayPalWebhook, recordVerifiedPaymentEvent, type PayPalWebhookEvent } from './payments.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -277,6 +277,39 @@ app.post('/api/packages/checkout/capture',requireAuth,rateLimit({windowMs:60*60_
     res.status(502).json({error:'Payment confirmation could not be completed. Your credits have not been updated; retry confirmation or contact support.'})
   }
 })
+
+// Public PayPal notifications. Every event is verified server-to-server
+// against the configured PayPal webhook ID before it can affect payment state.
+app.post('/api/paypal/webhook',rateLimit({windowMs:60_000,limit:40,standardHeaders:'draft-7',legacyHeaders:false}),
+  async(req,res)=>{
+    if(!paypalReady()||!process.env.PAYPAL_WEBHOOK_ID?.trim())
+      return res.status(503).json({error:'Payment webhook is not configured.'})
+    const parsed=z.object({
+      id:z.string().min(8).max(128),
+      event_type:z.string().min(5).max(80),
+      resource:z.record(z.unknown()).optional()
+    }).passthrough().safeParse(req.body)
+    if(!parsed.success)return res.status(400).json({error:'Invalid notification.'})
+    const value=req.body as PayPalWebhookEvent
+    const headers={
+      transmissionId:String(req.get('paypal-transmission-id')||''),
+      transmissionTime:String(req.get('paypal-transmission-time')||''),
+      certUrl:String(req.get('paypal-cert-url')||''),
+      authAlgo:String(req.get('paypal-auth-algo')||''),
+      transmissionSig:String(req.get('paypal-transmission-sig')||'')
+    }
+    try{
+      const verified=await verifyPayPalWebhook(value,headers)
+      if(!verified)return res.status(401).json({error:'Invalid PayPal webhook signature.'})
+      recordVerifiedPaymentEvent(value)
+      return res.status(200).json({ok:true})
+    }catch(error){
+      console.error('PayPal webhook verification or storage failed',error)
+      // Retriable response: PayPal should redeliver rather than losing a refund notice.
+      return res.status(503).json({error:'Webhook temporarily unavailable.'})
+    }
+  }
+)
 
 app.get('/api/credits',requireAuth,(req:AuthRequest,res) => {
   res.json({balance:getCredits(req.userId!), costs:COSTS, packages:PACKAGES,customLimits:CUSTOM_LIMITS, purchasesEnabled:false, ledger:getCreditHistory(req.userId!)})
