@@ -48,7 +48,8 @@ async function paypalRequest(method:'POST'|'GET',route:string,body?:unknown,requ
 }
 export type PayPalWebhookEvent={id:string;event_type:string;resource?:{
   id?:string;capture_id?:string;links?:Array<{rel?:string;href?:string}>;amount?:{value?:string;currency_code?:string};
-  disputed_transactions?:Array<{seller_transaction_id?:string;buyer_transaction_id?:string}>
+  disputed_transactions?:Array<{seller_transaction_id?:string;buyer_transaction_id?:string}>;
+  supplementary_data?:{related_ids?:{order_id?:string}};status?:string
 }}
 export type PayPalWebhookHeaders={
   transmissionId:string;transmissionTime:string;certUrl:string;
@@ -74,6 +75,14 @@ export async function verifyPayPalWebhook(event:PayPalWebhookEvent,headers:PayPa
     webhook_event:event
   }) as PayPalOrder & {verification_status?:string}
   return response.verification_status==='SUCCESS'
+}
+// Match a signed capture event to an immutable local order via PayPal's API.
+export function completedWebhookReference(event:PayPalWebhookEvent):{orderId:string;captureId:string}|null{
+  if(event.event_type!=='PAYMENT.CAPTURE.COMPLETED')return null
+  const orderId=event.resource?.supplementary_data?.related_ids?.order_id
+  const captureId=event.resource?.id
+  if(!orderId||!captureId||!/^[A-Za-z0-9]{8,32}$/.test(orderId)||!/^[A-Za-z0-9]{8,64}$/.test(captureId))return null
+  return {orderId,captureId}
 }
 export function webhookCaptureId(event:PayPalWebhookEvent):string|null {
   if(event.event_type==='PAYMENT.CAPTURE.REFUNDED' ||
