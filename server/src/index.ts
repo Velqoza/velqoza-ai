@@ -87,9 +87,31 @@ const audit=(adminId:string,target:string|null,action:string,detail:string)=>db.
 const aiWindowLimit = (kind:'generate'|'edit'|'studio') => (kind === 'studio' ? 25 : kind === 'edit' ? 8 : 3)
 const aiWindowHours = Number(process.env.AI_LIMIT_WINDOW_HOURS || 2)
 const aiWindowMs = Number.isFinite(aiWindowHours) && aiWindowHours>=1 && aiWindowHours<=24 ? aiWindowHours*3_600_000 : 2*3_600_000
+const windowLimitFor = (kind:'generate'|'edit'|'studio') => {
+  const configured=process.env[`WINDOW_${kind.toUpperCase()}_LIMIT`] ?? process.env[`DAILY_${kind.toUpperCase()}_LIMIT`]
+  return configured===undefined?aiWindowLimit(kind):Number(configured)
+}
+const usageSnapshot = (userId:string) => {
+  const nowMs=Date.now(), cutoff=nowMs-aiWindowMs
+  const kinds=['studio','edit','generate'] as const
+  const usage={} as Record<(typeof kinds)[number],{used:number;remaining:number;limit:number;nextAvailableAt:string|null}>
+  for (const kind of kinds) {
+    const limit=windowLimitFor(kind)
+    if(!Number.isSafeInteger(limit)||limit<0||limit>10000) throw new Error('Usage limits are misconfigured.')
+    const timestamps=db.prepare('SELECT created_at_ms FROM ai_window_usage WHERE user_id=? AND kind=? AND created_at_ms>? ORDER BY created_at_ms ASC')
+      .all(userId,kind,cutoff) as {created_at_ms:number}[]
+    const used=timestamps.length, remaining=Math.max(0,limit-used)
+    const first=limit>0 && used>=limit ? timestamps[used-limit]?.created_at_ms : undefined
+    usage[kind]={limit,used,remaining,nextAvailableAt:first===undefined?null:new Date(Number(first)+aiWindowMs).toISOString()}
+  }
+  return {windowHours:aiWindowMs/3600000,serverTime:new Date(nowMs).toISOString(),usage}
+}
+app.get('/api/usage',requireAuth,(req:AuthRequest,res)=>{
+  try {res.json(usageSnapshot(req.userId!))}
+  catch(error){console.error('Could not read usage',error);res.status(503).json({error:'Usage information is temporarily unavailable.'})}
+})
 const aiBudgetGuard = (kind:'generate'|'edit'|'studio') => (req:AuthRequest,res:express.Response,next:express.NextFunction) => {
-  const override=process.env[`WINDOW_${kind.toUpperCase()}_LIMIT`] ?? process.env[`DAILY_${kind.toUpperCase()}_LIMIT`]
-  const limit=override===undefined?aiWindowLimit(kind):Number(override)
+  const limit=windowLimitFor(kind)
   if (!Number.isSafeInteger(limit) || limit<0 || limit>10000) return res.status(503).json({error:'Usage limits are misconfigured.'})
   if (limit===0) return res.status(429).json({error:'This AI feature is temporarily disabled.'})
   try {
