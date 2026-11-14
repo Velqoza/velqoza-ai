@@ -207,6 +207,7 @@ export default function App() {
   const [previewPage, setPreviewPage] = useState('index.html')
   const [prompt, setPrompt] = useState('')
   const [category, setCategory] = useState('Business')
+  const [siteLanguage,setSiteLanguage]=useState<'auto'|'en'|'ar'|'he'>('auto')
   const [style, setStyle] = useState('Modern')
   const [colors, setColors] = useState('Midnight purple and electric blue')
   const [mode, setMode] = useState<'desktop'|'tablet'|'mobile'>('desktop')
@@ -510,7 +511,7 @@ export default function App() {
     if (!prompt.trim()) { flash('Describe the website you want to create first.'); return }
     setBusy(true); setTab('editor'); setMessages([])
     try {
-      const result = await api.generate({ prompt: prompt.trim(), category, style, colors })
+      const result = await api.generate({ prompt: prompt.trim(), category, style, colors, language:siteLanguage })
       workSessionRef.current += 1; activeIdRef.current = undefined; setSaveStatus('pending')
       setCode(result.code); setLastEditFiles([]); setUndoStack([]); setPreviewPage('index.html'); setInspectorFile('index.html'); setActive(null); setProjectName(result.code.title || 'New website')
       flash('Your website has been generated.')
@@ -951,6 +952,7 @@ export default function App() {
             <div className="selects">
               <label><LayoutTemplate size={14}/><select value={category} onChange={e=>setCategory(e.target.value)}>{['Business','Portfolio','E-commerce','Restaurant','Blog','Agency','Landing Page','SaaS','Other'].map(x=><option value={x} key={x}>{t(x)}</option>)}</select><ChevronDown size={13}/></label>
               <label><Palette size={14}/><select value={style} onChange={e=>setStyle(e.target.value)}>{['Minimal','Modern','Luxury','Futuristic','Creative'].map(x=><option value={x} key={x}>{t(x)}</option>)}</select><ChevronDown size={13}/></label>
+              <label title={t('Website language')}><Globe2 size={14}/><select aria-label={t('Website language')} value={siteLanguage} onChange={e=>setSiteLanguage(e.target.value as 'auto'|'en'|'ar'|'he')}><option value="auto">{t('Auto-detect language')}</option><option value="en">English</option><option value="ar">العربية</option><option value="he">עברית</option></select><ChevronDown size={13}/></label>
             </div>
             <label className="outline-btn" style={{cursor:mediaBusy?'wait':'pointer'}} title={t("Attach media")}><Plus size={15}/> {mediaBusy?t('Uploading…'):t('Attach media')}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,audio/mpeg,audio/wav,audio/ogg,video/mp4,video/webm" hidden disabled={mediaBusy} onChange={e=>{void uploadMediaFile(e.target.files?.[0],'builder');e.target.value=''}}/></label>
             <label className="outline-btn" style={{cursor:'pointer'}} title={t("Import ZIP")}><FolderOpen size={15}/> {t("Import ZIP")}<input type="file" accept=".zip,application/zip" hidden onChange={e=>{void importExistingZip(e.target.files?.[0]);e.target.value=''}}/></label>
