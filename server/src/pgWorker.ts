@@ -36,16 +36,24 @@ async function run(op: string, sql?: string, args?: unknown[]) {
   if (op === 'run') return { changes:result.rowCount ?? 0 }
   throw new Error('Unknown operation')
 }
-port.on('message', async (msg: { op:string; sql?:string; args?:unknown[]; signal:SharedArrayBuffer }) => {
-  const signal = new Int32Array(msg.signal)
-  try {
-    port.postMessage({ok:true,value:await run(msg.op,msg.sql,msg.args)})
-  } catch (error) {
-    // A failure inside an explicit transaction must be handled with rollback by caller.
-    port.postMessage({ok:false,error:error instanceof Error ? error.message : 'Database error'})
-  } finally {
-    Atomics.store(signal,0,1)
-    Atomics.notify(signal,0)
-  }
+// Serialize all messages, including BEGIN/COMMIT/ROLLBACK, on the single PG connection.
+// An async event listener alone does not prevent requests from overlapping.
+let queue: Promise<void> = Promise.resolve()
+port.on('message', (msg: { op:string; sql?:string; args?:unknown[]; signal:SharedArrayBuffer }) => {
+  queue = queue.then(async () => {
+    const signal = new Int32Array(msg.signal)
+    try {
+      port.postMessage({ok:true,value:await run(msg.op,msg.sql,msg.args)})
+    } catch (error) {
+      // A failure inside an explicit transaction must be handled with rollback by caller.
+      port.postMessage({ok:false,error:error instanceof Error ? error.message : 'Database error'})
+    } finally {
+      Atomics.store(signal,0,1)
+      Atomics.notify(signal,0)
+    }
+  }).catch(error => {
+    // Fatal queue errors must be surfaced rather than silently losing requests.
+    console.error('[VELQOZA] PostgreSQL worker queue failed:',error)
+  })
 })
 parentPort?.on('message', () => {})
