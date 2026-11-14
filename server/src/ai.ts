@@ -145,12 +145,15 @@ export async function generateWebsite(input: {
   category: string
   style: string
   colors: string
+  language?:'auto'|'en'|'ar'|'he'
 }) {
+  const forcedLanguage=input.language==='ar'?'Arabic':input.language==='he'?'Hebrew':input.language==='en'?'English':null
   return callModel(`Create a complete website based on this brief.
 Category: ${input.category}
 Visual style: ${input.style}
 Color direction: ${input.colors}
 User brief: ${input.prompt}
+Content language: ${forcedLanguage?`Write all user-facing website text in ${forcedLanguage}; use ${input.language==='ar'?'lang=ar and dir=rtl':input.language==='he'?'lang=he and dir=rtl':'lang=en and dir=ltr'} where appropriate.`:'Detect the preferred language from the user brief and respond in that language.'}
 Make the website feel intentionally art-directed and include the sections appropriate to the requested site. If the brief asks for multiple pages, return each as a distinct entry in pages[]. If it asks for a backend, database, server API, authentication, tests or a full-stack app, include actual complete project source files in extraFiles[].`)
 }
 
