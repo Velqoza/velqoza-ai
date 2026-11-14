@@ -744,7 +744,7 @@ export default function App() {
               <input type="text" value={publishDomain} onChange={e=>setPublishDomain(e.target.value.trim().toLowerCase())} placeholder="example.com" maxLength={253} autoComplete="off"/>
             </label>
             <p style={{fontSize:12,opacity:.82,lineHeight:1.65,marginTop:8}}>After publishing to Netlify, add this domain in your Netlify site's Domain management. Update DNS records at your registrar exactly as Netlify instructs and confirm domain ownership. Entering it here does not connect or verify it.</p>
-            {publishDomain && !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$/.test(publishDomain) && <p role="alert" style={{fontSize:12}}>Enter a valid domain such as example.com (without https://).</p>}
+            {publishDomain && !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(publishDomain) && <p role="alert" style={{fontSize:12}}>Enter a valid domain such as example.com (without https://).</p>}
           </div>}
           {publishDomainMode==='buy' && <div style={{marginTop:12}}>
             <p style={{fontSize:12,opacity:.85,lineHeight:1.7}}>Domain purchasing is not integrated into VELQOZA AI yet. Check availability and renewal prices at a domain registrar, purchase using your own account, then select “I already own a domain” to connect it after publishing. Do not enter payment information here.</p>
