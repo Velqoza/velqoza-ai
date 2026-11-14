@@ -151,6 +151,18 @@ export default function App() {
     }catch(error){setPackageFeedback(error instanceof Error?error.message:'Could not save request or start checkout.')}
     finally{setPackageRequestBusy(false)}
   }
+  const recoverExistingPayment=async(requestId:string)=>{
+    if(packageRequestBusy)return
+    setPackageRequestBusy(true);setPackageFeedback('Checking PayPal for a completed payment…')
+    try{
+      const result=await api.recoverCheckout(requestId)
+      const [wallet,requests,catalog]=await Promise.all([api.credits(),api.packageRequests(),api.packagesCatalog()])
+      setWalletBalance(result.balance);setWalletInfo(wallet);setPackageRequestHistory(requests.requests);setPackageCatalog(catalog)
+      setPackageFeedback(result.alreadyApplied?'Payment was already added to your account.':'Verified completed payment recovered. Your purchased balance is now available.')
+      void refreshUsage()
+    }catch(error){setPackageFeedback(error instanceof Error?error.message:'Could not verify the payment.')}
+    finally{setPackageRequestBusy(false)}
+  }
   const checkoutExistingRequest=async(requestId:string)=>{
     if(packageRequestBusy)return
     setPackageRequestBusy(true);setPackageFeedback('')
@@ -1150,10 +1162,10 @@ export default function App() {
         </button>
       </section>}
     {packageFeedback&&<p role="status" style={{padding:10,border:'1px solid rgba(170,145,210,.3)',borderRadius:8}}>{packageFeedback}</p>}
-    <p className="credit-prices">Custom prices use provisional USD unit rates set on the server. Package quantities and listed bundle prices are proposals, not active entitlements. Quote requests do not make payments or change your usage limits. Only a completed, verified sandbox capture activates purchased usage. Final prices and renewal periods are pending confirmation. Current AI charges: Generate {walletInfo?.costs.generate ?? '—'} · Edit {walletInfo?.costs.edit ?? '—'} · Chat {walletInfo?.costs.studio ?? '—'} Credits per request.</p>
+    <p className="credit-prices">Custom prices use provisional USD unit rates set on the server. Package quantities and listed bundle prices are proposals, not active entitlements. Quote requests do not make payments or change your usage limits. Only a completed, server-verified PayPal capture activates purchased usage. Final prices and renewal periods are pending confirmation. Current AI charges: Generate {walletInfo?.costs.generate ?? '—'} · Edit {walletInfo?.costs.edit ?? '—'} · Chat {walletInfo?.costs.studio ?? '—'} Credits per request.</p>
     {packageRequestHistory.length>0&&<div style={{marginTop:16}}><strong>Your package requests</strong>{packageRequestHistory.slice(0,5).map(request=><div key={request.id} style={{fontSize:12,margin:'7px 0',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
       <span>#{request.id.slice(0,8)} · {request.status} · {new Date(request.createdAt).toLocaleString()}</span>
-      {request.status==='pending'&&packageCatalog?.checkoutEnabled&&<button disabled={packageRequestBusy} className="outline-btn" onClick={()=>void checkoutExistingRequest(request.id)}>Pay with PayPal</button>}
+      {request.status==='pending'&&packageCatalog?.checkoutEnabled&&<><button disabled={packageRequestBusy} className="outline-btn" onClick={()=>void checkoutExistingRequest(request.id)}>Pay with PayPal</button><button disabled={packageRequestBusy} className="outline-btn" onClick={()=>void recoverExistingPayment(request.id)}>Check completed payment</button></>}
     </div>)}</div>}
     <div className="wallet-history"><div className="wallet-history-head"><strong>Recent activity</strong><button type="button" onClick={()=>void refreshWallet()} title="Refresh balance and activity"><RotateCcw size={14}/> Refresh</button></div>
     {walletInfo?.ledger?.length ? <div className="wallet-ledger" role="list">{walletInfo.ledger.slice(0,12).map(entry=><div className="wallet-ledger-row" role="listitem" key={entry.id}><div><strong>{entry.kind === 'voucher'?'Prepaid credit code':entry.kind === 'refund'?'Refund':entry.kind === 'generate'?'Website generation':entry.kind === 'edit'?'Website edit':entry.kind === 'studio'?'AI Studio chat':entry.kind}</strong><small>{new Date(entry.createdAt).toLocaleString()}</small></div><b className={entry.delta >= 0?'wallet-ledger-positive':'wallet-ledger-negative'}>{entry.delta >= 0?'+':''}{entry.delta}</b></div>)}</div> : <p className="wallet-history-empty">No credit activity yet. Your transactions will appear here.</p>}</div>
