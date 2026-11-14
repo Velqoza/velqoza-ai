@@ -18,7 +18,7 @@ import { studioPluginCatalog, runStudioPlugins } from './studioPlugins.js'
 import type { AuthRequest, SiteCode } from './types.js'
 import { validateExtraFiles } from './projectFiles.js'
 import { COSTS, PACKAGES, CUSTOM_LIMITS, CUSTOM_UNIT_PRICES_CENTS, calculateCustomPrice, getCredits, getCreditHistory, chargeAI, refundAI, purchasedQuota, redeemVoucher } from './credits.js'
-import { paypalReady, paypalMode, createCheckout, captureCheckout, retrieveCompletedCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, verifyPayPalWebhook, recordVerifiedPaymentEvent, type PayPalWebhookEvent } from './payments.js'
+import { paypalReady, paypalMode, createCheckout, captureCheckout, retrieveCompletedCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, verifyPayPalWebhook, recordVerifiedPaymentEvent, completedWebhookReference, type PayPalWebhookEvent } from './payments.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -335,6 +335,17 @@ app.post('/api/paypal/webhook',rateLimit({windowMs:60_000,limit:40,standardHeade
     try{
       const verified=await verifyPayPalWebhook(value,headers)
       if(!verified)return res.status(401).json({error:'Invalid PayPal webhook signature.'})
+      const completed=completedWebhookReference(value)
+      if(completed){
+        const payment=db.prepare('SELECT id,status,amount_cents AS amountCents,currency FROM package_payments WHERE paypal_order_id=?')
+          .get(completed.orderId) as {id:string;status:string;amountCents:number;currency:string}|undefined
+        if(payment?.status==='created'&&payment.currency==='USD'){
+          const remote=await retrieveCompletedCheckout(completed.orderId)
+          const captureId=verifiedCapture(remote,payment.id,payment.amountCents)
+          if(!captureId||captureId!==completed.captureId)throw new Error('PayPal capture reference does not match the verified server payment.')
+          fulfillVerifiedPayment(payment.id,captureId)
+        }
+      }
       recordVerifiedPaymentEvent(value)
       return res.status(200).json({ok:true})
     }catch(error){
