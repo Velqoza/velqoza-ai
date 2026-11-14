@@ -151,6 +151,10 @@ export default function App() {
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [inspectorFile, setInspectorFile] = useState('index.html')
   const [inspectorSearch, setInspectorSearch] = useState('')
+  const [sourceEditing,setSourceEditing] = useState(false)
+  const [sourceDraft,setSourceDraft] = useState('')
+  const [lastEditFiles,setLastEditFiles] = useState<string[]>([])
+  const [historyOpen,setHistoryOpen] = useState(false)
   const [studioSendError, setStudioSendError] = useState('')
   const [draftAvailable, setDraftAvailable] = useState(false)
   const [undoStack, setUndoStack] = useState<SiteCode[]>([])
@@ -271,6 +275,29 @@ export default function App() {
     if (Object.prototype.hasOwnProperty.call(getPages(code),name)) return buildDocument(code,name,true)
     return code.files?.[name] || ''
   }
+  function rawFileContent(name:string):string {
+    if (!code) return ''
+    if (name === 'styles.css') return code.css
+    if (name === 'script.js') return code.js
+    return getPages(code)[name] ?? code.files?.[name] ?? ''
+  }
+  function applySourceEdit() {
+    if (!code || !sourceEditing) return
+    const name=inspectorFile
+    if (sourceDraft.length > 180000) { flash('File exceeds maximum supported size.'); return }
+    const before=rawFileContent(name)
+    if (before===sourceDraft) {setSourceEditing(false);return}
+    let next:SiteCode
+    if (name==='styles.css') next={...code,css:sourceDraft}
+    else if (name==='script.js') next={...code,js:sourceDraft}
+    else if (Object.prototype.hasOwnProperty.call(getPages(code),name)) {
+      const pages={...getPages(code),[name]:sourceDraft}
+      next={...code,pages,html:pages['index.html']}
+    } else next={...code,files:{...(code.files||{}),[name]:sourceDraft}}
+    setUndoStack(stack=>[...stack.slice(-19),code])
+    setCode(next);setLastEditFiles([name]);setSourceEditing(false)
+    flash('Source updated. Review preview and save.')
+  }
   const allFiles = code ? [...Object.keys(getPages(code)),'styles.css','script.js',...Object.keys(code.files||{})] : []
   const visibleFiles = allFiles.filter(name => name.toLowerCase().includes(inspectorSearch.toLowerCase()))
 
@@ -335,7 +362,7 @@ export default function App() {
     try {
       const result = await api.generate({ prompt: prompt.trim(), category, style, colors })
       workSessionRef.current += 1; activeIdRef.current = undefined; setSaveStatus('pending')
-      setCode(result.code); setUndoStack([]); setPreviewPage('index.html'); setInspectorFile('index.html'); setActive(null); setProjectName(result.code.title || 'New website')
+      setCode(result.code); setLastEditFiles([]); setUndoStack([]); setPreviewPage('index.html'); setInspectorFile('index.html'); setActive(null); setProjectName(result.code.title || 'New website')
       flash('Your website has been generated.')
     } catch (e) { flash((e as Error).message) }
     finally { setBusy(false); void refreshWallet() }
@@ -347,10 +374,22 @@ export default function App() {
     requestAnimationFrame(() => editorInputRef.current?.focus())
     try {
       const result = await api.edit({ instruction, code })
-      setUndoStack(stack=>[...stack.slice(-9),code])
-      setCode(result.code)
+      const previousPages=getPages(code),updatedPages=getPages(result.code)
+      const changedNames=[
+        ...new Set([...Object.keys(previousPages),...Object.keys(updatedPages)])
+      ].filter(name=>previousPages[name]!==updatedPages[name])
+      if(code.css!==result.code.css) changedNames.push('styles.css')
+      if(code.js!==result.code.js) changedNames.push('script.js')
+      for(const name of new Set([...Object.keys(code.files||{}),...Object.keys(result.code.files||{})])) {
+        if(code.files?.[name]!==result.code.files?.[name]) changedNames.push(name)
+      }
+      if (!changedNames.length && code.title===result.code.title && code.description===result.code.description) {
+        throw new Error('AI returned no changes. Your original website is unchanged.')
+      }
+      setUndoStack(stack=>[...stack.slice(-19),code])
+      setCode(result.code);setLastEditFiles(changedNames)
       if (!Object.prototype.hasOwnProperty.call(getPages(result.code), previewPage)) setPreviewPage('index.html')
-      setMessages(m => [...m, {role:'assistant', text:'Updated your website. The preview now reflects the changes.'}])
+      setMessages(m => [...m, {role:'assistant', text:'Updated files: '+(changedNames.length?changedNames.join(', '):'Project details only')+'. Review preview, then Save. Use Undo AI edit to roll back.'}])
     } catch (e) { setMessages(m => [...m, {role:'assistant', text:`I couldn't apply that change: ${(e as Error).message}`}]) }
     finally { setBusy(false); void refreshWallet(); requestAnimationFrame(() => editorInputRef.current?.focus()) }
   }
@@ -493,7 +532,7 @@ export default function App() {
   }
   async function openProject(project: Project) {
     workSessionRef.current += 1; activeIdRef.current = project.id; setSaveStatus('saved')
-    setActive(project); setCode(project.code); setUndoStack([]); setPreviewPage('index.html'); setInspectorFile('index.html'); setProjectName(project.name); setTab('editor'); setMessages([]); setShowProjects(false)
+    setActive(project); setCode(project.code); setLastEditFiles([]); setUndoStack([]); setPreviewPage('index.html'); setInspectorFile('index.html'); setProjectName(project.name); setTab('editor'); setMessages([]); setShowProjects(false)
   }
   async function deleteProject(id: string) {
     if (!confirm('Delete this project permanently?')) return
@@ -557,7 +596,7 @@ export default function App() {
       }
       const imported:SiteCode={title:file.name.replace(/\.zip$/i,'')||'Imported website',description:'Imported from an existing website ZIP. Edit it using VELQOZA AI.',html:pages['index.html'],css:primaryCss?contents[primaryCss]:'',js:primaryJs?contents[primaryJs]:'',pages,files:extras}
       workSessionRef.current+=1;activeIdRef.current=undefined;setSaveStatus('pending')
-      setCode(imported);setActive(null);setProjectName(imported.title);setPreviewPage('index.html')
+      setCode(imported);setLastEditFiles([]);setActive(null);setProjectName(imported.title);setPreviewPage('index.html')
       setInspectorFile('index.html');setUndoStack([]);setMessages([]);setTab('editor')
       flash('Website imported. Review preview and Save; unsupported nested files were not included.')
     } catch(error) { flash(error instanceof Error?error.message:'ZIP import failed.') }
@@ -687,7 +726,7 @@ export default function App() {
       </section>
       <footer className="footer"><a href="#" className="brand"><span className="brand-mark"><Sparkles size={17}/></span>VELQOZA<span className="brand-ai"> AI</span></a><span>Build beyond imagination.</span><span>© {new Date().getFullYear()} VELQOZA AI</span></footer>
     </main> : <main className="workspace">
-      <div className="workspace-head"><div><button className="back-link" onClick={()=>setTab('builder')}>← Back to home</button><div className="project-title"><input value={projectName} onChange={e=>setProjectName(e.target.value)} aria-label="Project name"/><span className={`saved-indicator ${changed?'has-changes':''}`} title={saveError || 'Automatically saved to your account'}>{!user?'LOGIN TO SAVE':saveStatus==='error'?'SAVE FAILED — RETRY':saveStatus==='saving'?'SAVING…':changed?'AUTO-SAVE PENDING':'ALL CHANGES SAVED'}</span></div></div><div className="workspace-actions"><label className="outline-btn" style={{cursor:'pointer'}} title="Import existing HTML/CSS/JavaScript website ZIP"><FolderOpen size={15}/> Import ZIP<input type="file" accept=".zip,application/zip" hidden onChange={e=>{void importExistingZip(e.target.files?.[0]);e.target.value=''}}/></label><button className="outline-btn" onClick={undoLastEdit} disabled={!undoStack.length} title="Restore the previous AI edit (this session)"><RotateCcw size={15}/> Undo AI edit</button><button className="outline-btn" onClick={()=>setInspectorOpen(v=>!v)}><FolderTree size={15}/> Files</button><button className="outline-btn" onClick={saveProject}><Save size={15}/> Save</button><button className="outline-btn" onClick={openPreview}><ExternalLink size={15}/> Open</button><button className="download-btn" onClick={()=>{setPublishApproved(false);setPublishOpen(true)}}><Rocket size={15}/> Publish</button><button className="download-btn" onClick={downloadFiles}><Download size={15}/> Export ZIP</button></div></div>
+      <div className="workspace-head"><div><button className="back-link" onClick={()=>setTab('builder')}>← Back to home</button><div className="project-title"><input value={projectName} onChange={e=>setProjectName(e.target.value)} aria-label="Project name"/><span className={`saved-indicator ${changed?'has-changes':''}`} title={saveError || 'Automatically saved to your account'}>{!user?'LOGIN TO SAVE':saveStatus==='error'?'SAVE FAILED — RETRY':saveStatus==='saving'?'SAVING…':changed?'AUTO-SAVE PENDING':'ALL CHANGES SAVED'}</span></div></div><div className="workspace-actions"><label className="outline-btn" style={{cursor:'pointer'}} title="Import existing HTML/CSS/JavaScript website ZIP"><FolderOpen size={15}/> Import ZIP<input type="file" accept=".zip,application/zip" hidden onChange={e=>{void importExistingZip(e.target.files?.[0]);e.target.value=''}}/></label><button className="outline-btn" onClick={undoLastEdit} disabled={!undoStack.length} title="Restore the previous AI edit (this session)"><RotateCcw size={15}/> Undo AI edit</button><button className="outline-btn" onClick={()=>setHistoryOpen(v=>!v)}><RotateCcw size={15}/> History ({undoStack.length})</button><button className="outline-btn" onClick={()=>setInspectorOpen(v=>!v)}><FolderTree size={15}/> Files</button><button className="outline-btn" onClick={saveProject}><Save size={15}/> Save</button><button className="outline-btn" onClick={openPreview}><ExternalLink size={15}/> Open</button><button className="download-btn" onClick={()=>{setPublishApproved(false);setPublishOpen(true)}}><Rocket size={15}/> Publish</button><button className="download-btn" onClick={downloadFiles}><Download size={15}/> Export ZIP</button></div></div>
       <div className="workspace-grid">
         <aside className="assistant-panel">
           <div className="assistant-title"><div className="assistant-icon"><Sparkles size={16}/></div><div><strong>VELQOZA assistant</strong><small>AI DESIGN PARTNER</small></div><span className="online-dot"/></div>
@@ -696,6 +735,7 @@ export default function App() {
             {messages.length===0 ? <div className="chat-empty"><div className="chat-spark"><WandSparkles size={22}/></div><strong>What should we improve?</strong><p>Ask for a change and I'll update your existing website code.</p><div className="suggestions">{['Make the design more premium','Add a pricing section','Improve mobile responsiveness','Use a darker color palette'].map(s=><button key={s} onClick={()=>setChat(s)}>{s}<ArrowUpRight size={12}/></button>)}</div></div> : messages.map((m,i)=><div key={i} className={`chat-message ${m.role}`}><span>{m.role==='user'?'YOU':'VELQOZA AI'}</span><p>{m.text}</p></div>)}
             {busy && <div className="typing"><span/><span/><span/> Updating your website...</div>}
           </div>
+          {lastEditFiles.length>0 && <div style={{fontSize:12,padding:'10px 14px',borderTop:'1px solid rgba(255,255,255,.1)'}}>Changed: {lastEditFiles.join(', ')} <button onClick={()=>{setInspectorOpen(true);setInspectorFile(lastEditFiles[0]);setSourceEditing(false)}}>Review files</button></div>}
           <div className="chat-composer"><textarea ref={editorInputRef} value={chat} onChange={e=>setChat(e.target.value)} placeholder="Tell me what you'd like to change..." rows={3} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();if(!busy)editSite()}}}/><div><span>↵ Enter to send · full-stack files export in ZIP</span><button onClick={editSite} disabled={busy||!chat.trim()}><Send size={15}/></button></div></div>
           <div className="assistant-foot"><ShieldCheck size={13}/> Your changes are generated securely through the server.</div>
         </aside>
@@ -703,7 +743,8 @@ export default function App() {
           <div className="preview-toolbar"><div className="preview-status"><span className="live-dot"/> LIVE PREVIEW <span className="preview-divider"/> <span>{code.title}</span></div><div className="device-switch">{([['desktop',Monitor],['tablet',Tablet],['mobile',Smartphone]] as const).map(([m,Icon])=><button key={m} className={mode===m?'selected':''} onClick={()=>setMode(m)} title={`${m} preview`}><Icon size={16}/></button>)}</div><button className="icon-btn" title="Open in new tab" onClick={openPreview}><ArrowUpRight size={17}/></button></div>
           <div className="page-picker" aria-label="Website pages"><span>Pages</span>{Object.keys(getPages(code)).map(name => <button key={name} className={previewPage === name ? 'active' : ''} onClick={() => setPreviewPage(name)}>{name}</button>)}</div>
           {Object.keys(code.files || {}).length > 0 && <div className="project-file-list"><strong>Project source ({Object.keys(code.files || {}).length} extra files)</strong><span>Backend &amp; tests are included in ZIP but not executed in this frontend preview.</span><div className="project-file-items">{Object.entries(code.files || {}).map(([name, content]) => <button key={name} onClick={()=>downloadOne(name.split('/').pop() || name, content)} title={`Download ${name}`}>{name} ↓</button>)}</div></div>}
-          {inspectorOpen && <div className="source-explorer"><div className="source-explorer-tree"><div className="source-explorer-heading"><FolderTree size={15}/> PROJECT FILES <span>{allFiles.length}</span></div><input type="search" aria-label="Filter project files" placeholder="Find a file..." value={inspectorSearch} onChange={e=>setInspectorSearch(e.target.value)}/><div className="source-explorer-files">{visibleFiles.map(name=><button key={name} className={inspectorFile===name?'selected':''} onClick={()=>setInspectorFile(name)}><FileCode2 size={13}/>{name}</button>)}</div></div><div className="source-explorer-code"><div className="source-explorer-bar"><strong>{inspectorFile}</strong><div><button onClick={()=>{navigator.clipboard.writeText(inspectorContent(inspectorFile));flash('Source copied.')}} title="Copy file"><Copy size={14}/> Copy</button><button onClick={()=>downloadOne(inspectorFile.split('/').pop()||inspectorFile,inspectorContent(inspectorFile))} title="Download file"><Download size={14}/></button><button onClick={()=>setInspectorOpen(false)} title="Close file explorer"><X size={15}/></button></div></div><pre><code>{inspectorContent(inspectorFile)}</code></pre></div></div>}
+          {historyOpen && <div style={{padding:14,borderBottom:'1px solid rgba(255,255,255,.12)'}}><strong>Version history (current session)</strong><p style={{fontSize:12,opacity:.75}}>Previous edits are kept in this session only. They are not yet permanent version history.</p><div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}>{undoStack.slice().reverse().map((version,index)=><button className="outline-btn" key={index} onClick={()=>{if(!window.confirm('Restore this earlier snapshot? Current unsaved code will be replaced.'))return;setCode(version);setUndoStack(stack=>stack.slice(0,stack.length-index-1));setHistoryOpen(false);flash('Snapshot restored. Save to keep changes.')}}>Version {undoStack.length-index}</button>)}</div></div>}
+          {inspectorOpen && <div className="source-explorer"><div className="source-explorer-tree"><div className="source-explorer-heading"><FolderTree size={15}/> PROJECT FILES <span>{allFiles.length}</span></div><input type="search" aria-label="Filter project files" placeholder="Find a file..." value={inspectorSearch} onChange={e=>setInspectorSearch(e.target.value)}/><div className="source-explorer-files">{visibleFiles.map(name=><button key={name} className={inspectorFile===name?'selected':''} onClick={()=>{setInspectorFile(name);setSourceEditing(false)}}><FileCode2 size={13}/>{name}</button>)}</div></div><div className="source-explorer-code"><div className="source-explorer-bar"><strong>{inspectorFile}</strong><div>{sourceEditing ? <><button onClick={applySourceEdit}><Check size={14}/> Apply changes</button><button onClick={()=>setSourceEditing(false)}>Cancel</button></> : <button onClick={()=>{setSourceDraft(rawFileContent(inspectorFile));setSourceEditing(true)}}><Pencil size={14}/> Edit</button>}<button onClick={()=>{navigator.clipboard.writeText(inspectorContent(inspectorFile));flash('Source copied.')}} title="Copy file"><Copy size={14}/> Copy</button><button onClick={()=>downloadOne(inspectorFile.split('/').pop()||inspectorFile,inspectorContent(inspectorFile))} title="Download file"><Download size={14}/></button><button onClick={()=>setInspectorOpen(false)} title="Close file explorer"><X size={15}/></button></div></div>{sourceEditing ? <textarea aria-label="Edit source code" value={sourceDraft} onChange={e=>setSourceDraft(e.target.value)} spellCheck={false} style={{width:'100%',height:340,resize:'vertical',background:'#11121a',color:'#e9e9f4',fontFamily:'monospace',fontSize:12,padding:12,border:'1px solid #414159',borderRadius:8}}/> : <pre><code>{inspectorContent(inspectorFile)}</code></pre>}</div></div>}
           <div className="preview-stage"><div className={`preview-frame ${mode}`} style={{width:frameWidth}}><iframe ref={iframeRef} title="Generated website preview" sandbox="allow-scripts" srcDoc={buildDocument(code, previewPage)} /></div></div>
           <div className="code-footer"><div><span className="code-live-dot"/> Frontend preview only · backend code is not running</div><div className="code-actions"><button onClick={()=>downloadOne(previewPage,buildDocument(code, previewPage, true))}><Download size={13}/> Page</button><button onClick={()=>downloadOne('styles.css',code.css)}><Download size={13}/> CSS</button><button onClick={()=>downloadOne('script.js',code.js)}><Download size={13}/> JS</button><button onClick={downloadFiles}><Download size={13}/> ZIP</button></div></div>
         </section>
