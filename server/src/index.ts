@@ -10,7 +10,6 @@ import { fileURLToPath } from 'node:url'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
 import { db } from './db.js'
-import { installLegacyImporter } from './legacyImport.js'
 import { requireAuth, signToken } from './auth.js'
 import { generateWebsite, editWebsite, chatWithStudio } from './ai.js'
 import { studioPluginCatalog, runStudioPlugins } from './studioPlugins.js'
@@ -39,7 +38,6 @@ app.use((req,res,next) => {
   next()
 })
 app.use(express.json({ limit: '8mb' }))
-installLegacyImporter(app, db)
 app.use('/api/ai', rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false }))
 app.use('/api/studio', rateLimit({ windowMs: 60_000, limit: 25, standardHeaders: 'draft-7', legacyHeaders: false }))
 app.use('/api/auth', rateLimit({ windowMs: 15*60_000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: false }))
