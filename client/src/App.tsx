@@ -45,18 +45,11 @@ function escapeAttr(value: string) { return escapeHtml(value) }
 
 type UsageKind='studio'|'edit'|'generate'
 type UsageState=Awaited<ReturnType<typeof api.usage>>
-function UsageItem({item,label,now,compact=false}:{item:UsageState['usage'][UsageKind]|undefined;label:string;now:number;compact?:boolean}) {
-  if(!item)return <span style={{fontSize:12,opacity:.7}}>{label}: loading…</span>
-  const remaining=Math.max(0,item.remaining)
-  const ms=item.nextAvailableAt ? Math.max(0,Date.parse(item.nextAvailableAt)-now) : 0
-  const until=ms ? `${Math.floor(ms/3600000)>0?Math.floor(ms/3600000)+'h ':''}${Math.ceil(ms%3600000/60000)}m` : null
-  if(compact)return <span aria-live="polite" title={item.limit+' requests per two-hour rolling window, plus purchased quota'} style={{fontSize:12,opacity:.9,whiteSpace:'nowrap'}}>{label}: <strong>{remaining}/{item.limit}</strong>{item.purchasedRemaining>0 ? ' · Purchased '+item.purchasedRemaining : ''}{until && !item.purchasedRemaining ? ' · Next in '+until : ''}</span>
-  return <div style={{display:'grid',gap:6,padding:'8px 0'}}>
-    <div style={{display:'flex',justifyContent:'space-between',gap:10}}><strong>{label}</strong><span>{remaining} / {item.limit} left</span></div>
-    <div style={{height:7,background:'rgba(150,150,170,.25)',borderRadius:99,overflow:'hidden'}}><div style={{height:'100%',width:((remaining/item.limit)*100||0)+'%',background:'#ad8cff',borderRadius:99}}/></div>
-    {item.purchasedRemaining>0 && <small style={{opacity:.9}}>Purchased extras: <strong>{item.purchasedRemaining.toLocaleString()}</strong> (used before Credits, no double charge)</small>}
-    {until && !item.purchasedRemaining && <small style={{opacity:.76}}>Next request available in {until}</small>}
-  </div>
+function UsageItem({item,label,compact=false}:{item:UsageState['usage'][UsageKind]|undefined;label:string;now:number;compact?:boolean}) {
+  if(!item)return <span className="usage-available">{label}: …</span>
+  const available=Math.max(0,item.remaining)+Math.max(0,item.purchasedRemaining)
+  if(compact)return <span className="usage-available" aria-live="polite">{label}: <strong>{available.toLocaleString()}</strong></span>
+  return <div className="usage-available usage-available-full" aria-live="polite"><strong>{label}</strong><span>{available.toLocaleString()} available</span></div>
 }
 
 export default function App() {
@@ -995,7 +988,7 @@ export default function App() {
           <p style={{fontSize:12,opacity:.74,padding:'0 15px 6px'}}>{t("Drag & drop media here or click Attach media. Files up to 3 MB; they upload to your account and their URL is added to this prompt.")}</p>
           {mediaError && <p role="alert" style={{fontSize:12,color:'#f4a7a7',padding:'0 15px 8px'}}>{mediaError}</p>}
           {draftAvailable && <div className="prompt-draft-label"><RotateCcw size={13}/> Your last unfinished prompt was restored <button onClick={()=>{setPrompt('');setDraftAvailable(false)}}>{t("Clear")}</button></div>}
-          <div style={{padding:'8px 14px',display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}><UsageItem compact item={usageInfo?.usage.generate} label={t("Generations left")} now={usageNow}/></div>
+          <div style={{padding:'8px 14px',display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}><UsageItem compact item={usageInfo?.usage.generate} label={t("Website generations available")} now={usageNow}/></div>
           <div className="prompt-controls">
             <div className="selects">
               <label><LayoutTemplate size={14}/><select value={category} onChange={e=>setCategory(e.target.value)}>{['Business','Portfolio','E-commerce','Restaurant','Blog','Agency','Landing Page','SaaS','Other'].map(x=><option value={x} key={x}>{t(x)}</option>)}</select><ChevronDown size={13}/></label>
@@ -1072,7 +1065,7 @@ export default function App() {
             <div><span>{mediaBusy?t('Uploading attachment…'):t('↵ Enter to send · drag media here')}</span><label title="Attach image, audio or video" style={{display:'inline-flex',alignItems:'center',cursor:mediaBusy?'wait':'pointer',padding:'6px 9px',borderRadius:8}}><Plus size={16}/><input type="file" hidden disabled={mediaBusy} accept="image/png,image/jpeg,image/webp,image/gif,audio/mpeg,audio/wav,audio/ogg,video/mp4,video/webm" onChange={e=>{void uploadMediaFile(e.target.files?.[0],'edit');e.target.value=''}}/></label><button onClick={editSite} disabled={busy||mediaBusy||!chat.trim()}><Send size={15}/></button></div>
             {mediaError && <p role="alert" style={{fontSize:12,color:'#f4a7a7',padding:'0 9px 8px'}}>{mediaError}</p>}
           </div>
-          <div className="assistant-foot" style={{display:'flex',gap:8,flexWrap:'wrap'}}><ShieldCheck size={13}/> Your changes are generated securely through the server. <UsageItem compact item={usageInfo?.usage.edit} label="Edits left" now={usageNow}/></div>
+          <div className="assistant-foot" style={{display:'flex',gap:8,flexWrap:'wrap'}}><ShieldCheck size={13}/> Your changes are generated securely through the server. <UsageItem compact item={usageInfo?.usage.edit} label="Edits available" now={usageNow}/></div>
         </aside>
         <section className="preview-panel">
           <div className="preview-toolbar"><div className="preview-status"><span className="live-dot"/> LIVE PREVIEW <span className="preview-divider"/> <span>{code.title}</span></div><div className="device-switch">{([['desktop',Monitor],['tablet',Tablet],['mobile',Smartphone]] as const).map(([m,Icon])=><button key={m} className={mode===m?'selected':''} onClick={()=>setMode(m)} title={`${m} preview`}><Icon size={16}/></button>)}</div><button className="icon-btn" title="Open in new tab" onClick={openPreview}><ArrowUpRight size={17}/></button></div>
