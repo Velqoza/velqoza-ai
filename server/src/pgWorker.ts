@@ -5,7 +5,16 @@ import pg from 'pg'
 
 const { Client, types } = pg
 types.setTypeParser(20, (v:string) => Number(v)) // COUNT(*) returns int8
-const client = new Client({ connectionString: workerData.connectionString, ssl: { rejectUnauthorized: true }, application_name: 'velqoza-ai' })
+// Render's same-region internal Postgres hostname uses a private network and a
+// self-signed certificate. Do not force certificate verification there.
+// Keep full TLS certificate verification for external/public database hosts.
+const dbHost = new URL(workerData.connectionString).hostname
+const renderPrivateHost = /^dpg-[a-z0-9-]+$/.test(dbHost)
+const client = new Client({
+  connectionString: workerData.connectionString,
+  ssl: renderPrivateHost ? false : { rejectUnauthorized: true },
+  application_name: 'velqoza-ai'
+})
 const port = workerData.port as import('node:worker_threads').MessagePort
 let connected = false
 
