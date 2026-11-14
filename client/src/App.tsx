@@ -219,13 +219,14 @@ export default function App() {
   const [adminOpen,setAdminOpen]=useState(false)
   const [adminData,setAdminData]=useState<Awaited<ReturnType<typeof api.adminOverview>>|null>(null)
   const [adminSearch,setAdminSearch]=useState('')
+  const [adminPaymentReadiness,setAdminPaymentReadiness]=useState<Awaited<ReturnType<typeof api.adminPaymentReadiness>>|null>(null)
   const [adminPayments,setAdminPayments]=useState<Awaited<ReturnType<typeof api.adminPayments>>['payments']>([])
   const [adminPaymentReview,setAdminPaymentReview]=useState<Awaited<ReturnType<typeof api.adminPaymentsReview>>['payments']>([])
   const [adminBusy,setAdminBusy]=useState(false)
   const [adminError,setAdminError]=useState('')
   const [adminAudit,setAdminAudit]=useState<Awaited<ReturnType<typeof api.adminAudit>>['entries']>([])
   const loadAdmin=async()=>{
-    try{const [summary,history,payments,reviews]=await Promise.all([api.adminOverview(),api.adminAudit(),api.adminPayments(),api.adminPaymentsReview()]);setAdminData(summary);setAdminAudit(history.entries);setAdminPayments(payments.payments);setAdminPaymentReview(reviews.payments);setAdminError('')}
+    try{const [summary,history,payments,reviews,readiness]=await Promise.all([api.adminOverview(),api.adminAudit(),api.adminPayments(),api.adminPaymentsReview(),api.adminPaymentReadiness()]);setAdminData(summary);setAdminAudit(history.entries);setAdminPayments(payments.payments);setAdminPaymentReview(reviews.payments);setAdminPaymentReadiness(readiness);setAdminError('')}
     catch(e){setAdminError(e instanceof Error?e.message:'Admin dashboard failed to load')}
   }
   const runAdmin=async(op:()=>Promise<unknown>)=>{setAdminBusy(true);setAdminError('');try{await op();await loadAdmin()}catch(e){setAdminError(e instanceof Error?e.message:'Action failed')}finally{setAdminBusy(false)}}
@@ -1102,6 +1103,10 @@ export default function App() {
     <div className="admin-toolbar"><input placeholder="Find account by email" value={adminSearch} onChange={e=>setAdminSearch(e.target.value)}/><button className="studio-top-btn" onClick={()=>void loadAdmin()}>Refresh</button></div>
     {adminError && <p className="admin-error" role="alert">{adminError}</p>}<div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{t("Account")}</th><th>{t("Projects")}</th><th>{t("Credits")}</th><th>AI messages</th><th>Site edits</th><th>Site creations</th><th>Status</th><th>Owner actions</th></tr></thead><tbody>{(adminData?.users||[]).filter(u=>u.email.toLowerCase().includes(adminSearch.toLowerCase())).map(u=><tr key={u.id}><td><strong>{u.email}</strong><small>{new Date(u.createdAt).toLocaleDateString()}</small></td><td>{u.projects}</td><td>{u.credits}</td><td>{u.messagesRemaining}</td><td>{u.editsRemaining}</td><td>{u.generationsRemaining}</td><td>{u.isBanned?'Suspended':'Active'}</td><td><div className="admin-actions"><button disabled={adminBusy} onClick={()=>adjustCredits(u.id,u.email,1)}>+ Credits</button><button disabled={adminBusy} onClick={()=>adjustCredits(u.id,u.email,-1)}>− Credits</button>{(['studio','edit','generate'] as const).map(kind=><span key={kind} className="admin-quota-actions"><button disabled={adminBusy} onClick={()=>adjustQuota(u.id,u.email,kind,1)}>+ {kind==='studio'?'Messages':kind==='edit'?'Edits':'Creations'}</button><button disabled={adminBusy} onClick={()=>adjustQuota(u.id,u.email,kind,-1)}>−</button></span>)}{u.id!==user.id && <><button disabled={adminBusy} onClick={()=>{if(window.confirm(`${u.isBanned?'Restore':'Suspend'} ${u.email}?`))void runAdmin(()=>api.adminBan(u.id,!u.isBanned))}}>{u.isBanned?'Unban':'Ban'}</button><button className="admin-danger" disabled={adminBusy} onClick={()=>{if(window.prompt(`Permanently delete ${u.email} and all projects? Type DELETE ACCOUNT`) !== 'DELETE ACCOUNT')return;void runAdmin(()=>api.adminDelete(u.id))}}>{t("Delete")}</button></>}</div></td></tr>)}</tbody></table></div>
     <section className="admin-announcements" aria-label="PayPal payment review">
+      <h3>PayPal Live configuration checks</h3>
+      <p>Checks describe configuration only; they do not approve real-money checkout.</p>
+      {adminPaymentReadiness?.checks.map(check=><p key={check.label}><strong>{check.ok?'✓':'○'} {check.label}</strong> — {check.ok?'Configured':'Needs attention'}</p>)}
+      {adminPaymentReadiness&&<p>{adminPaymentReadiness.note}</p>}
       <h3>PayPal payment review</h3>
       <p>Read-only records. Any refund, reversal or dispute needs manual review in the PayPal merchant dashboard. Never change Credits based on an unverified payment.</p>
       <p><strong>{adminPaymentReview.length}</strong> payment record(s) flagged for review</p>
