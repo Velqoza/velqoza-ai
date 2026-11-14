@@ -30,7 +30,15 @@ export async function probeSupabaseDatabase():Promise<void> {
     console.warn('[Supabase probe] Replace the password placeholder directly in Render Environment.')
     return
   }
-  const client=new pg.Client({connectionString:raw,connectionTimeoutMillis:9000,query_timeout:9000,ssl:{rejectUnauthorized:true},application_name:'velqoza-ai-supabase-probe'})
+  const ca=process.env.SUPABASE_CA_CERT?.replace(/\\n/g,'\n').trim()
+  if(!ca||!ca.includes('-----BEGIN CERTIFICATE-----')||!ca.includes('-----END CERTIFICATE-----')){
+    console.warn('[Supabase probe] CA certificate missing. Add SUPABASE_CA_CERT from the Supabase Database SSL settings.')
+    return
+  }
+  // pg connection-string sslmode may override the trusted CA object. Explicitly
+  // remove it and use Node TLS verification with Supabase's certificate.
+  url.searchParams.delete('sslmode')
+  const client=new pg.Client({connectionString:url.toString(),connectionTimeoutMillis:9000,query_timeout:9000,ssl:{ca,rejectUnauthorized:true},application_name:'velqoza-ai-supabase-probe'})
   try {
     await client.connect()
     const result=await client.query<{tables:number}>(`
