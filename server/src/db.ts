@@ -131,4 +131,18 @@ db.exec(`CREATE TABLE IF NOT EXISTS email_auth_tokens (
 );
 CREATE INDEX IF NOT EXISTS email_auth_tokens_user_purpose ON email_auth_tokens(user_id,purpose);`)
 
+// Published sites are saved snapshots, never executable backend projects.
+db.exec(`
+CREATE TABLE IF NOT EXISTS published_sites (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ project_id TEXT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+ slug TEXT NOT NULL UNIQUE,
+ code_json TEXT NOT NULL,
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS published_sites_user ON published_sites(user_id);
+`)
+
 }
