@@ -16,7 +16,7 @@ import { studioPluginCatalog, runStudioPlugins } from './studioPlugins.js'
 import type { AuthRequest, SiteCode } from './types.js'
 import { validateExtraFiles } from './projectFiles.js'
 import { COSTS, PACKAGES, CUSTOM_LIMITS, CUSTOM_UNIT_PRICES_CENTS, calculateCustomPrice, getCredits, getCreditHistory, chargeAI, refundAI, purchasedQuota, redeemVoucher } from './credits.js'
-import { paypalReady, createCheckout, captureCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection } from './payments.js'
+import { paypalReady, paypalMode, createCheckout, captureCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection } from './payments.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -201,7 +201,7 @@ const packageRequestBody=z.union([packageSelection,customSelection])
 const checkoutRequestBody=z.object({requestId:z.string().uuid()}).strict()
 const paypalReturnBody=z.object({orderId:z.string().regex(/^[A-Za-z0-9]{8,32}$/)}).strict()
 
-app.get('/api/packages',requireAuth,(_req,res)=>res.json({packages:PACKAGES,customLimits:CUSTOM_LIMITS,unitPricesCents:CUSTOM_UNIT_PRICES_CENTS,checkoutEnabled:paypalReady(),quotasActive:false,currency:'USD'}))
+app.get('/api/packages',requireAuth,(_req,res)=>res.json({packages:PACKAGES,customLimits:CUSTOM_LIMITS,unitPricesCents:CUSTOM_UNIT_PRICES_CENTS,checkoutEnabled:paypalReady(),paymentMode:paypalMode(),quotasActive:false,currency:'USD'}))
 app.get('/api/packages/requests',requireAuth,(req:AuthRequest,res)=>{
   const rows=db.prepare('SELECT id,selection_json,status,created_at FROM package_requests WHERE user_id=? ORDER BY created_at DESC LIMIT 25').all(req.userId) as {id:string;selection_json:string;status:string;created_at:string}[]
   res.json({requests:rows.map(r=>({id:r.id,selection:JSON.parse(r.selection_json),status:r.status,createdAt:r.created_at}))})
@@ -247,7 +247,7 @@ app.post('/api/packages/checkout',requireAuth,rateLimit({windowMs:60*60_000,limi
     if(existing?.paypal_order_id && existing.paypal_order_id!==order.orderId)throw new Error('Payment order mismatch.')
     db.prepare("UPDATE package_payments SET paypal_order_id=?,status='created' WHERE id=? AND status IN ('creating','created')")
       .run(order.orderId,paymentId)
-    res.json({orderId:order.orderId,approvalUrl:order.approvalUrl,sandbox:true})
+    res.json({orderId:order.orderId,approvalUrl:order.approvalUrl,sandbox:paypalMode()==='sandbox',paymentMode:paypalMode()})
   }catch(error){
     console.error('Sandbox PayPal order creation failed',error)
     res.status(502).json({error:'Could not create sandbox checkout. Retry from the package request.'})
