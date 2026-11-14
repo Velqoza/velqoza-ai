@@ -155,4 +155,19 @@ CREATE TABLE IF NOT EXISTS published_site_names (
 );
 `)
 
+// Private owner upload; media is served via a high-entropy unguessable URL for
+// preview/public sites. Never store active HTML/SVG or executable files here.
+db.exec(`
+CREATE TABLE IF NOT EXISTS media_assets (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  filename TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  data_base64 TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS media_assets_user_created ON media_assets(user_id,created_at DESC);
+`)
+
 }
