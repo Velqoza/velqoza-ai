@@ -17,9 +17,15 @@ const dbHost = dbUrl.hostname
 if(dbHost.endsWith('.pooler.supabase.com') && dbUrl.port!=='5432')
   throw new Error('Supabase requires Session pooler (port 5432), not Transaction pooler (port 6543).')
 const renderPrivateHost = /^dpg-[a-z0-9-]+$/.test(dbHost)
+const isSupabasePooler=dbHost.endsWith('.pooler.supabase.com')
+const supabaseCa=process.env.SUPABASE_CA_CERT?.replace(/\\n/g,'\n').trim()
+if(isSupabasePooler && (!supabaseCa || !supabaseCa.includes('-----BEGIN CERTIFICATE-----')))
+  throw new Error('Supabase CA certificate is required for verified TLS.')
+if(isSupabasePooler) dbUrl.searchParams.delete('sslmode')
 const client = new Client({
-  connectionString: workerData.connectionString,
-  ssl: renderPrivateHost ? false : { rejectUnauthorized: true },
+  connectionString: isSupabasePooler?dbUrl.toString():workerData.connectionString,
+  ssl: renderPrivateHost ? false : isSupabasePooler
+    ? {ca:supabaseCa,rejectUnauthorized:true} : { rejectUnauthorized: true },
   application_name: 'velqoza-ai'
 })
 const port = workerData.port as import('node:worker_threads').MessagePort
