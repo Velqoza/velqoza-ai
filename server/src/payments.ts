@@ -47,7 +47,8 @@ async function paypalRequest(method:'POST'|'GET',route:string,body?:unknown,requ
 export type PaidSelection =
   | {type:'package';packageId:'starter'|'pro'|'business'|'agency';pricing?:unknown}
   | ({type:'custom'} & CustomQuantity & {pricing?:unknown})
-export function priceSelection(selection:PaidSelection){
+export type PaymentGrants={credits:number;messages:number;edits:number;generations:number;amountCents:number}
+export function priceSelection(selection:PaidSelection):PaymentGrants{
   if(selection.type==='custom'){
     const price=calculateCustomPrice(selection)
     return {credits:selection.credits,messages:selection.messages,edits:selection.edits,generations:selection.generations,amountCents:price.totalCents}
@@ -55,6 +56,23 @@ export function priceSelection(selection:PaidSelection){
   const item=PACKAGES.find(p=>p.id===selection.packageId)
   if(!item)throw new Error('Unknown package.')
   return {credits:item.credits,messages:item.messages,edits:item.edits,generations:item.generations,amountCents:item.usdCents}
+}
+export function serializePaymentSnapshot(selection:PaidSelection,grants:PaymentGrants){
+  return JSON.stringify({selection,grants})
+}
+function validatedGrants(raw:string,paidCents:number):PaymentGrants {
+  const stored=JSON.parse(raw) as {selection?:PaidSelection;grants?:PaymentGrants}
+  // Require immutable snapshots. Old checkout records cannot be automatically
+  // fulfilled until manually reconciled against the original catalog.
+  const grants=stored.grants
+  if(!grants||!stored.selection)throw new Error('Legacy payment lacks an immutable price snapshot; manual reconciliation required.')
+  for(const key of ['credits','messages','edits','generations','amountCents'] as const){
+    const n=grants[key]
+    if(!Number.isSafeInteger(n)||n<0)throw new Error('Payment snapshot is invalid.')
+  }
+  if(grants.amountCents!==paidCents)throw new Error('Payment snapshot price mismatch.')
+  if(grants.credits+grants.messages+grants.edits+grants.generations<=0)throw new Error('Payment snapshot has no entitlements.')
+  return grants
 }
 export async function createCheckout(paymentId:string,cents:number,description:string,returnOrigin:string){
   if(cents<50||cents>1_000_000)throw new Error('Checkout supports orders from $0.50 to $10,000. Please reduce the selected quantities.')
@@ -96,12 +114,11 @@ export function verifiedCapture(order:PayPalOrder,paymentId:string,expectedCents
 }
 export function fulfillVerifiedPayment(paymentId:string,captureId:string){
   return db.transaction(()=>{
-    const payment=db.prepare('SELECT id,user_id,status,selection_json FROM package_payments WHERE id=?').get(paymentId) as {id:string;user_id:string;status:string;selection_json:string}|undefined
+    const payment=db.prepare('SELECT id,user_id,status,selection_json,amount_cents FROM package_payments WHERE id=?').get(paymentId) as {id:string;user_id:string;status:string;selection_json:string;amount_cents:number}|undefined
     if(!payment)throw new Error('Checkout record not found.')
     if(payment.status==='completed')return {alreadyApplied:true}
     if(payment.status!=='created')throw new Error('Checkout not available for fulfillment.')
-    const selection=JSON.parse(payment.selection_json) as PaidSelection
-    const grants=priceSelection(selection),now=new Date().toISOString()
+    const grants=validatedGrants(payment.selection_json,payment.amount_cents),now=new Date().toISOString()
     const updated=db.prepare("UPDATE package_payments SET status='completed',paypal_capture_id=?,fulfilled_at=? WHERE id=? AND status='created'")
       .run(captureId,now,paymentId)
     if(updated.changes!==1)return {alreadyApplied:true}
