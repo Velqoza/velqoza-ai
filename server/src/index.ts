@@ -543,7 +543,7 @@ app.get('/sites/:siteName/:filename',(req,res)=>{
 app.use((req,res,next)=>{
   if(process.env.STAGING_INIT_SCHEMA!=='true') return next()
   const host=req.hostname.toLowerCase()
-  const match=/^([a-z0-9-]+)\\.staging\\.velqoza\\.com$/.exec(host)
+  const match=/^([a-z0-9-]+)\.staging\.velqoza\.com$/.exec(host)
   if(!match || !validSiteName(match[1])) return next()
   const publication=publicationByName(match[1])
   if(!publication) return res.status(404).send('Site not found.')
