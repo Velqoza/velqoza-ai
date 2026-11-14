@@ -11,6 +11,7 @@ import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
 import { db } from './db.js'
 import { probeSupabaseDatabase } from './supabaseProbe.js'
+import { applyOwnerTenGenerationGrant } from './oneTimeGenerationGrant.js'
 import { requireAuth, signToken } from './auth.js'
 import { generateWebsite, editWebsite, chatWithStudio } from './ai.js'
 import { studioPluginCatalog, runStudioPlugins } from './studioPlugins.js'
@@ -885,6 +886,7 @@ app.use((err:any,_req:express.Request,res:express.Response,_next:express.NextFun
   console.error('Unhandled API error',err)
   res.status(500).json({ error:'An unexpected server error occurred.' })
 })
+applyOwnerTenGenerationGrant()
 app.listen(port,()=>console.log(`VELQOZA API listening on http://localhost:${port}`))
 // This never switches the active database. Staging-only, read-only connection test.
 void probeSupabaseDatabase()
