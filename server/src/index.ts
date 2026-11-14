@@ -81,22 +81,35 @@ const requireAdmin = (req:AuthRequest,res:express.Response,next:express.NextFunc
 }
 const audit=(adminId:string,target:string|null,action:string,detail:string)=>db.prepare('INSERT INTO admin_audit(id,admin_id,target_user_id,action,detail,created_at) VALUES (?,?,?,?,?,?)')
   .run(randomUUID(),adminId,target,action,detail,new Date().toISOString())
-// Per-account limits complement IP throttling. They cannot replace provider-level spend caps.
-const aiDailyLimit = (kind:'generate'|'edit'|'studio') => (kind === 'studio' ? 25 : kind === 'edit' ? 8 : 3)
+// Rolling two-hour limits (rather than a once-per-calendar-day reset).
+// Existing DAILY_*_LIMIT overrides are accepted for backwards-compatible counts;
+// the limit now applies per sliding window, not per day. No change to Credits.
+const aiWindowLimit = (kind:'generate'|'edit'|'studio') => (kind === 'studio' ? 25 : kind === 'edit' ? 8 : 3)
+const aiWindowHours = Number(process.env.AI_LIMIT_WINDOW_HOURS || 2)
+const aiWindowMs = Number.isFinite(aiWindowHours) && aiWindowHours>=1 && aiWindowHours<=24 ? aiWindowHours*3_600_000 : 2*3_600_000
 const aiBudgetGuard = (kind:'generate'|'edit'|'studio') => (req:AuthRequest,res:express.Response,next:express.NextFunction) => {
-  const day = new Date().toISOString().slice(0,10)
-  const limit = Number(process.env[`DAILY_${kind.toUpperCase()}_LIMIT`] || aiDailyLimit(kind))
-  if (!Number.isSafeInteger(limit) || limit < 0 || limit > 10000) return res.status(503).json({error:'Usage limits are misconfigured.'})
-  if (limit === 0) return res.status(429).json({error:'This AI feature is temporarily disabled.'})
+  const override=process.env[`WINDOW_${kind.toUpperCase()}_LIMIT`] ?? process.env[`DAILY_${kind.toUpperCase()}_LIMIT`]
+  const limit=override===undefined?aiWindowLimit(kind):Number(override)
+  if (!Number.isSafeInteger(limit) || limit<0 || limit>10000) return res.status(503).json({error:'Usage limits are misconfigured.'})
+  if (limit===0) return res.status(429).json({error:'This AI feature is temporarily disabled.'})
   try {
-    const reservation = db.transaction(() => {
-      const result = db.prepare(`INSERT INTO ai_usage(user_id,day,kind,count) VALUES(?,?,?,1)
-        ON CONFLICT(user_id,day,kind) DO UPDATE SET count=ai_usage.count+1 WHERE ai_usage.count < ?`).run(req.userId,day,kind,limit)
-      return result.changes > 0
+    const nowMs=Date.now(),cutoff=nowMs-aiWindowMs
+    const reservation=db.transaction(()=>{
+      // Clean up only this owner's expired entries, avoiding an unbounded table.
+      db.prepare('DELETE FROM ai_window_usage WHERE user_id=? AND kind=? AND created_at_ms<=?').run(req.userId,kind,cutoff)
+      const recent=db.prepare('SELECT created_at_ms FROM ai_window_usage WHERE user_id=? AND kind=? AND created_at_ms>? ORDER BY created_at_ms ASC')
+        .all(req.userId,kind,cutoff) as {created_at_ms:number}[]
+      if(recent.length>=limit)return {allowed:false,retryAfterMs:Number(recent[0].created_at_ms)+aiWindowMs-nowMs}
+      db.prepare('INSERT INTO ai_window_usage(id,user_id,kind,created_at_ms) VALUES(?,?,?,?)').run(randomUUID(),req.userId,kind,nowMs)
+      return {allowed:true,retryAfterMs:0}
     })()
-    if (!reservation) return res.status(429).json({error:`Daily ${kind} limit reached. Try again tomorrow.`})
+    if(!reservation.allowed){
+      const seconds=Math.max(1,Math.ceil(reservation.retryAfterMs/1000))
+      res.setHeader('Retry-After',String(seconds))
+      return res.status(429).json({error:`You've used your ${kind} allowance. Your next slot becomes available in ${Math.ceil(seconds/60)} minute(s).`,retryAfterSeconds:seconds})
+    }
     next()
-  } catch(error) { console.error('AI budget guard failed',error);res.status(503).json({error:'Usage protection is temporarily unavailable.'}) }
+  }catch(error){console.error('AI rolling-window guard failed',error);res.status(503).json({error:'Usage protection is temporarily unavailable.'})}
 }
 const aiConcurrency = new Set<string>()
 const singleFlight = (kind:string) => (req:AuthRequest,res:express.Response,next:express.NextFunction) => {
