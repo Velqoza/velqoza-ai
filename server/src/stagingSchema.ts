@@ -153,4 +153,13 @@ CREATE TABLE IF NOT EXISTS velqoza_ai.quota_reservations (
  refunded INTEGER NOT NULL DEFAULT 0,
  created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.payment_webhook_events (
+  id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  capture_id TEXT,
+  payment_id TEXT,
+  received_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS webhook_events_capture ON velqoza_ai.payment_webhook_events(capture_id);
 `;
