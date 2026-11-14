@@ -1,9 +1,23 @@
 {
   "name": "velqoza-ai",
-  "version": "1.0.0",
   "private": true,
-  "type": "module",
-  "scripts": { "start": "node server.js", "dev": "node --watch server.js" },
-  "dependencies": { "dotenv": "^16.4.7", "express": "^4.21.2" },
-  "engines": { "node": ">=18" }
+  "version": "1.0.0",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:client": "npm --workspace client run dev",
+    "dev:server": "npm --workspace server run dev",
+    "build": "npm --workspace client run build && npm --workspace server run build",
+    "start": "npm --workspace server run start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "@google/genai": "^3.0.0"
+  }
 }

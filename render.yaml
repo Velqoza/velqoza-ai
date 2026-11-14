@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: velqoza-ai-production
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm install --no-audit --no-fund && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5.5
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: VELQOZA AI <noreply@velqoza.com>
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: DAILY_GENERATE_LIMIT
+        value: '3'
+      - key: DAILY_EDIT_LIMIT
+        value: '8'
+      - key: DAILY_STUDIO_LIMIT
+        value: '25'
