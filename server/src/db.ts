@@ -170,4 +170,15 @@ CREATE TABLE IF NOT EXISTS media_assets (
 CREATE INDEX IF NOT EXISTS media_assets_user_created ON media_assets(user_id,created_at DESC);
 `)
 
+// User-controlled AI Studio memory, isolated per account.
+db.exec(`
+CREATE TABLE IF NOT EXISTS studio_memories (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ content TEXT NOT NULL,
+ created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS studio_memories_owner ON studio_memories(user_id,created_at DESC);
+`)
+
 }
