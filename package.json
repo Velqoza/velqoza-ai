@@ -11,7 +11,8 @@
     "dev:client": "npm --workspace client run dev",
     "dev:server": "npm --workspace server run dev",
     "build": "npm --workspace client run build && npm --workspace server run build",
-    "start": "npm --workspace server run start"
+    "start": "npm --workspace server run start",
+    "migrate:supabase": "node scripts/migrate-staging-to-supabase.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
