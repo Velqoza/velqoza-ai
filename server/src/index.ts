@@ -385,7 +385,7 @@ function priorStudioContext(userId:string,currentThreadId:string,query:string):s
     JOIN ai_threads t ON t.id=m.thread_id
     WHERE t.user_id=? AND t.id<>? AND m.role='user'
     ORDER BY m.created_at DESC LIMIT 100`).all(userId,currentThreadId) as {role:string;content:string}[]
-  const words=new Set(query.toLowerCase().split(/[^\\p{L}\\p{N}]+/u).filter(w=>w.length>=4))
+  const words=new Set(query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w=>w.length>=4))
   const ranked=candidates.map(c=>({value:c.content,score:[...words].filter(w=>c.content.toLowerCase().includes(w)).length}))
     .filter(c=>c.score>0).sort((a,b)=>b.score-a.score)
   return ranked.slice(0,8).map(c=>c.value.slice(0,350))
