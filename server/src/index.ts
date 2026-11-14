@@ -427,32 +427,68 @@ app.delete('/api/projects/:id',requireAuth,(req:AuthRequest,res) => {
 // Generated code always runs in a CSP-sandboxed opaque origin so it cannot read
 // the VELQOZA app's localStorage/auth tokens, even though it shares a hostname.
 const publishSlug = z.string().regex(/^[a-f0-9]{24}$/)
+const siteNameSchema=z.string().min(3).max(40).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+const reservedSiteNames=new Set(['www','app','ai','admin','api','mail','smtp','imap','pop','ftp','support','help','accounts','login','signup','billing','dashboard','staging','test','demo','preview','cdn','assets','static','ns1','ns2','deploy','status','pay','payments','checkout','security','auth','oauth','webmail','localhost','velqoza','www2'])
+const validSiteName=(value:unknown):value is string=>typeof value==='string' && siteNameSchema.safeParse(value).success && !reservedSiteNames.has(value)
+const publicationName=(id:string)=> (db.prepare('SELECT site_name FROM published_site_names WHERE publication_id=?').get(id) as {site_name:string}|undefined)?.site_name || null
+const publicationByName=(siteName:string)=>db.prepare(
+  'SELECT p.slug FROM published_site_names n JOIN published_sites p ON p.id=n.publication_id WHERE n.site_name=?'
+).get(siteName) as {slug:string}|undefined
+
 const publicationRow = (projectId:string,userId:string) => db.prepare(
   'SELECT id,slug,created_at,updated_at FROM published_sites WHERE project_id=? AND user_id=?'
 ).get(projectId,userId) as {id:string;slug:string;created_at:string;updated_at:string}|undefined
 app.get('/api/published/:projectId',requireAuth,(req:AuthRequest,res)=>{
   if (!z.string().uuid().safeParse(req.params.projectId).success) return res.status(400).json({error:'Invalid project ID.'})
   const row=publicationRow(req.params.projectId,req.userId!)
-  res.json({publication:row ? {slug:row.slug,url:`/published/${row.slug}/index.html`,updatedAt:row.updated_at} : null})
+  res.json({publication:row ? {slug:row.slug,siteName:publicationName(row.id),url:publicationName(row.id)?`/sites/${publicationName(row.id)}/index.html`:`/published/${row.slug}/index.html`,updatedAt:row.updated_at} : null})
+})
+app.get('/api/site-names/check',requireAuth,(req:AuthRequest,res)=>{
+  const siteName=String(req.query.name || '').toLowerCase()
+  if(!validSiteName(siteName)) return res.json({available:false,reason:'Use 3–40 lowercase letters, numbers and single hyphens; this name may be reserved.'})
+  const existing=publicationByName(siteName)
+  res.json({available:!existing,reason:existing?'This site name is already taken.':null})
 })
 app.post('/api/published/:projectId',requireAuth,(req:AuthRequest,res)=>{
   if (!z.string().uuid().safeParse(req.params.projectId).success) return res.status(400).json({error:'Invalid project ID.'})
+  const requested=typeof req.body?.siteName==='string'?req.body.siteName.toLowerCase().trim():''
+  if(!validSiteName(requested)) return res.status(400).json({error:'Choose a name with 3–40 lowercase letters, numbers, or hyphens. This name may be reserved.'})
   const project=db.prepare('SELECT code_json FROM projects WHERE id=? AND user_id=?').get(req.params.projectId,req.userId) as {code_json:string}|undefined
   if (!project) return res.status(404).json({error:'Save the project first.'})
-  // A saved project is the only valid publish source, never a raw client-supplied page.
   const code=safeCode.safeParse(JSON.parse(project.code_json))
   if (!code.success) return res.status(400).json({error:'Project has unsupported content. Review files before publishing.'})
   const existing=publicationRow(req.params.projectId,req.userId!)
   const timestamp=now()
-  if(existing) {
-    db.prepare('UPDATE published_sites SET code_json=?,updated_at=? WHERE id=? AND user_id=?')
-      .run(JSON.stringify(code.data),timestamp,existing.id,req.userId)
-    return res.json({ok:true,slug:existing.slug,url:`/published/${existing.slug}/index.html`,updated:true})
+  try {
+    const result=db.transaction(()=>{
+      // Atomic name ownership check protects concurrent claims and rename races.
+      const claimed=db.prepare('SELECT publication_id FROM published_site_names WHERE site_name=?').get(requested) as {publication_id:string}|undefined
+      if(claimed && claimed.publication_id!==existing?.id) return {conflict:true} as const
+      if(existing){
+        db.prepare('UPDATE published_sites SET code_json=?,updated_at=? WHERE id=? AND user_id=?')
+          .run(JSON.stringify(code.data),timestamp,existing.id,req.userId)
+        const prior=publicationName(existing.id)
+        if(prior) db.prepare('UPDATE published_site_names SET site_name=? WHERE publication_id=? AND user_id=?')
+          .run(requested,existing.id,req.userId)
+        else db.prepare('INSERT INTO published_site_names(site_name,publication_id,user_id,created_at) VALUES(?,?,?,?)')
+          .run(requested,existing.id,req.userId,timestamp)
+        return {slug:existing.slug,updated:true} as const
+      }
+      const slug=randomUUID().replace(/-/g,'').slice(0,24)
+      const publicationId=randomUUID()
+      db.prepare('INSERT INTO published_sites(id,user_id,project_id,slug,code_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?)')
+        .run(publicationId,req.userId,req.params.projectId,slug,JSON.stringify(code.data),timestamp,timestamp)
+      db.prepare('INSERT INTO published_site_names(site_name,publication_id,user_id,created_at) VALUES(?,?,?,?)')
+        .run(requested,publicationId,req.userId,timestamp)
+      return {slug,updated:false} as const
+    })()
+    if('conflict' in result) return res.status(409).json({error:'This site name is already taken. Choose another.'})
+    return res.status(result.updated?200:201).json({ok:true,slug:result.slug,siteName:requested,url:`/sites/${requested}/index.html`,updated:result.updated,
+      subdomainReady:false,desiredSubdomain:`${requested}.velqoza.com`})
+  } catch(error) {
+    console.error('Publish name reservation failed',error)
+    return res.status(409).json({error:'This site name could not be reserved. It may already be taken.'})
   }
-  const slug=randomUUID().replace(/-/g,'').slice(0,24)
-  db.prepare('INSERT INTO published_sites(id,user_id,project_id,slug,code_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?)')
-    .run(randomUUID(),req.userId,req.params.projectId,slug,JSON.stringify(code.data),timestamp,timestamp)
-  res.status(201).json({ok:true,slug,url:`/published/${slug}/index.html`,updated:false})
 })
 app.delete('/api/published/:projectId',requireAuth,(req:AuthRequest,res)=>{
   const result=db.prepare('DELETE FROM published_sites WHERE project_id=? AND user_id=?').run(req.params.projectId,req.userId)
@@ -460,7 +496,10 @@ app.delete('/api/published/:projectId',requireAuth,(req:AuthRequest,res)=>{
   res.json({ok:true})
 })
 app.get('/published/:slug',(req,res)=>res.redirect(302,`/published/${req.params.slug}/index.html`))
-app.get('/published/:slug/:filename',(req,res)=>{
+const servePublishedBySlug=(req:express.Request,res:express.Response,slug:string,filename:string)=>{
+  if (!publishSlug.safeParse(slug).success) return res.status(404).send('Site not found.')
+  req.params.slug=slug
+  req.params.filename=filename
   if (!publishSlug.safeParse(req.params.slug).success) return res.status(404).send('Site not found.')
   const filename=req.params.filename.toLowerCase()
   if (!/^[a-z0-9][a-z0-9_.-]{0,80}$/.test(filename)) return res.status(404).send('File not found.')
@@ -489,7 +528,31 @@ app.get('/published/:slug/:filename',(req,res)=>{
   document=/<\/body>/i.test(document)?document.replace(/<\/body>/i,js+'</body>'):document+js
   res.setHeader('Content-Security-Policy',csp)
   res.type('html').send(document)
+}
+app.get('/published/:slug/:filename',(req,res)=>servePublishedBySlug(req,res,req.params.slug,req.params.filename))
+app.get('/sites/:siteName',(req,res)=>res.redirect(302,`/sites/${req.params.siteName}/index.html`))
+app.get('/sites/:siteName/:filename',(req,res)=>{
+  const name=req.params.siteName.toLowerCase()
+  if (!validSiteName(name)) return res.status(404).send('Site not found.')
+  const row=publicationByName(name)
+  if (!row) return res.status(404).send('Site not found.')
+  return servePublishedBySlug(req,res,row.slug,req.params.filename)
 })
+// Subdomain routing is staging-only. DNS and TLS must be provisioned separately;
+// no requests for live *.velqoza.com are intercepted without operator approval.
+app.use((req,res,next)=>{
+  if(process.env.STAGING_INIT_SCHEMA!=='true') return next()
+  const host=req.hostname.toLowerCase()
+  const match=/^([a-z0-9-]+)\\.staging\\.velqoza\\.com$/.exec(host)
+  if(!match || !validSiteName(match[1])) return next()
+  const publication=publicationByName(match[1])
+  if(!publication) return res.status(404).send('Site not found.')
+  if(req.path.includes('/api/') || req.path.startsWith('/api')) return res.status(404).send('Not found.')
+  const filename=req.path==='/'?'index.html':req.path.slice(1)
+  if(filename.includes('/') || !/^[a-z0-9][a-z0-9_.-]{0,80}$/i.test(filename)) return res.status(404).send('Not found.')
+  return servePublishedBySlug(req,res,publication.slug,filename)
+})
+
 
 // One-origin production build: serve the Vite output from the same Express service.
 // Generated projects are exported only; no generated server code is executed here.
