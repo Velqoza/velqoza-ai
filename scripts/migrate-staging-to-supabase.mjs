@@ -19,7 +19,7 @@ const tableOrder = [
   'email_auth_tokens','published_sites','published_site_names','media_assets',
   'studio_memories','ai_window_usage','package_requests','usage_quotas',
   'package_payments','quota_reservations','payment_webhook_events'
-] as const
+]
 
 const {Client}=pg
 const apply=process.argv.includes('--apply')
@@ -40,15 +40,15 @@ function requireConnection() {
   return {source:sourceRaw,target:target.toString()}
 }
 
-async function tableColumns(client:InstanceType<typeof Client>,table:string):Promise<string[]> {
-  const {rows}=await client.query<{column_name:string}>(`
+async function tableColumns(client,table) {
+  const {rows}=await client.query(`
     SELECT column_name FROM information_schema.columns
     WHERE table_schema='velqoza_ai' AND table_name=$1
     ORDER BY ordinal_position`,[table])
   return rows.map(x=>x.column_name)
 }
-async function tableCount(client:InstanceType<typeof Client>,table:string):Promise<number> {
-  const {rows}=await client.query<{n:string}>(`SELECT COUNT(*)::text AS n FROM velqoza_ai."${table}"`)
+async function tableCount(client,table) {
+  const {rows}=await client.query(`SELECT COUNT(*)::text AS n FROM velqoza_ai."${table}"`)
   return Number(rows[0]?.n??0)
 }
 async function main(){
@@ -66,7 +66,7 @@ async function main(){
       await target.query('BEGIN')
       if(apply)await source.query(`LOCK TABLE ${tableOrder.map(t=>`velqoza_ai."${t}"`).join(', ')} IN SHARE MODE`)
       let total=0
-      const plan:Array<{table:string;source:number;target:number}>=[]
+      const plan=[]
       for(const table of tableOrder){
         const sourceCols=await tableColumns(source,table),targetCols=await tableColumns(target,table)
         if(!sourceCols.length||JSON.stringify(sourceCols)!==JSON.stringify(targetCols))
