@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture } from '../src/payments.js'
+import { priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture, webhookCaptureId } from '../src/payments.js'
 
 test('stored package grants are immutable and amount-bound',()=>{
   const selection={type:'package' as const,packageId:'starter' as const}
@@ -33,4 +33,12 @@ test('only one completed matching PayPal capture can fulfill a purchase',()=>{
   assert.equal(verifiedCapture({...order,purchase_units:[{...order.purchase_units[0],payments:{captures:[{...order.purchase_units[0].payments.captures[0],amount:{currency_code:'EUR',value:'4.45'}}]}}]},paymentId,445),null)
   assert.equal(verifiedCapture({...order,purchase_units:[...order.purchase_units,...order.purchase_units]},paymentId,445),null)
   assert.equal(verifiedCapture({...order,purchase_units:[{...order.purchase_units[0],payments:{captures:[...order.purchase_units[0].payments.captures,...order.purchase_units[0].payments.captures]}}]},paymentId,445),null)
+})
+
+test('refund and dispute webhooks identify original capture for review',()=>{
+  assert.equal(webhookCaptureId({id:'EVT12345678',event_type:'PAYMENT.CAPTURE.REFUNDED',resource:{capture_id:'CAP123'}}),'CAP123')
+  assert.equal(webhookCaptureId({id:'EVT12345679',event_type:'PAYMENT.CAPTURE.REVERSED',resource:{capture_id:'CAP124'}}),'CAP124')
+  assert.equal(webhookCaptureId({id:'EVT12345680',event_type:'CUSTOMER.DISPUTE.CREATED',resource:{disputed_transactions:[{seller_transaction_id:'CAP125'}]}}),'CAP125')
+  assert.equal(webhookCaptureId({id:'EVT12345681',event_type:'CUSTOMER.DISPUTE.CREATED',resource:{disputed_transactions:[{seller_transaction_id:'CAP125'},{seller_transaction_id:'CAP126'}]}}),null)
+  assert.equal(webhookCaptureId({id:'EVT12345682',event_type:'PAYMENT.CAPTURE.COMPLETED',resource:{id:'CAP127'}}),null)
 })
