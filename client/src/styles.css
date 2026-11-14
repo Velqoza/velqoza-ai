@@ -292,3 +292,49 @@
 }
 .site-announcement{max-width:1180px;margin:14px auto 0;padding:12px 18px;border:1px solid #7256ae;border-radius:12px;background:#20152f;color:#eae0ff;display:flex;align-items:center;gap:14px;flex-wrap:wrap;overflow-wrap:anywhere}.site-announcement span{white-space:pre-wrap;font-size:12px}
 .admin-announcements{margin:22px 0;padding:18px;border:1px solid #46345f;border-radius:14px;background:#1c1528}.admin-announcements label{display:block;margin:12px 0;font-size:12px;color:#d9c8f4}.admin-announcements input,.admin-announcements textarea{display:block;width:100%;margin-top:7px;background:#130f1e;color:#fff;border:1px solid #5b4379;border-radius:9px;padding:11px}.announcement-list{display:grid;gap:9px;margin-top:14px}.announcement-list article{display:flex;justify-content:space-between;gap:10px;padding:12px;border:1px solid #3e3152;border-radius:9px;overflow-wrap:anywhere}.announcement-list article>div{min-width:0}.announcement-list small{display:block;color:#9685b4}.announcement-list p{white-space:pre-wrap}@media(max-width:700px){.site-announcement{margin:10px 12px}.announcement-list article{flex-direction:column}}
+
+/* VELQOZA control layout: keep every action inside its container. */
+.prompt-card{min-width:0}
+.prompt-card .prompt-controls{
+ display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;
+ gap:10px;min-width:0;width:100%;
+}
+.prompt-card .prompt-controls>.selects{
+ display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+ gap:9px;flex:1 1 100%;width:100%;min-width:0;
+}
+.prompt-card .prompt-controls>.selects label{
+ min-width:0;width:100%;display:flex;align-items:center;justify-content:flex-start;
+}
+.prompt-card .prompt-controls>.selects select{
+ min-width:0;width:100%;max-width:100%;flex:1 1 0;text-overflow:ellipsis;
+}
+.prompt-card .prompt-controls>.selects svg{flex-shrink:0}
+.prompt-card .prompt-controls>.outline-btn{
+ display:inline-flex;align-items:center;justify-content:center;
+ min-width:0;min-height:42px;white-space:normal;text-align:center;
+}
+.prompt-card .prompt-controls>.generate-btn{
+ margin-inline-start:auto;min-height:44px;max-width:100%;white-space:normal;
+ padding-inline:18px;
+}
+.usage-available{font-size:12px;opacity:.94}
+.usage-available strong{font-weight:750;color:#d7bcff;font-variant-numeric:tabular-nums}
+.usage-available-full{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid #31273d}
+.usage-available-full span{font-variant-numeric:tabular-nums;color:#d7bcff}
+@media (max-width:700px){
+ .prompt-card .prompt-controls{display:flex;flex-direction:column;align-items:stretch}
+ .prompt-card .prompt-controls>.selects{grid-template-columns:1fr;flex:auto}
+ .prompt-card .prompt-controls>.outline-btn,.prompt-card .prompt-controls>.generate-btn{width:100%;margin-inline:0}
+}
+@media (min-width:701px) and (max-width:1100px){
+ .prompt-card .prompt-controls>.outline-btn{flex:1 1 130px}
+ .prompt-card .prompt-controls>.generate-btn{flex:1 1 190px}
+}
+/* The header stays reachable while the builder page is scrolled. */
+.topbar{position:sticky;top:0;background:rgba(12,10,19,.97);backdrop-filter:blur(14px);z-index:50}
+@media (min-width:1021px) and (max-width:1450px){
+ .topbar .nav-links>a{display:none}
+ .topbar .top-actions{gap:7px}
+ .topbar .top-actions>.avatar,.topbar .top-actions>.icon-btn{display:none}
+}
