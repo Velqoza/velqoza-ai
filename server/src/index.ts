@@ -15,7 +15,7 @@ import { generateWebsite, editWebsite, chatWithStudio } from './ai.js'
 import { studioPluginCatalog, runStudioPlugins } from './studioPlugins.js'
 import type { AuthRequest, SiteCode } from './types.js'
 import { validateExtraFiles } from './projectFiles.js'
-import { COSTS, PACKAGES, CUSTOM_LIMITS, getCredits, getCreditHistory, chargeCredits, refundCredits, redeemVoucher } from './credits.js'
+import { COSTS, PACKAGES, CUSTOM_LIMITS, CUSTOM_UNIT_PRICES_CENTS, calculateCustomPrice, getCredits, getCreditHistory, chargeCredits, refundCredits, redeemVoucher } from './credits.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -196,7 +196,7 @@ const customSelection=z.object({type:z.literal('custom'),credits:quantity,messag
 })
 const packageSelection=z.object({type:z.literal('package'),packageId:z.enum(['starter','pro','business','agency'])}).strict()
 const packageRequestBody=z.union([packageSelection,customSelection])
-app.get('/api/packages',requireAuth,(_req,res)=>res.json({packages:PACKAGES,customLimits:CUSTOM_LIMITS,checkoutEnabled:false,quotasActive:false,currency:'USD'}))
+app.get('/api/packages',requireAuth,(_req,res)=>res.json({packages:PACKAGES,customLimits:CUSTOM_LIMITS,unitPricesCents:CUSTOM_UNIT_PRICES_CENTS,checkoutEnabled:false,quotasActive:false,currency:'USD'}))
 app.get('/api/packages/requests',requireAuth,(req:AuthRequest,res)=>{
   const rows=db.prepare('SELECT id,selection_json,status,created_at FROM package_requests WHERE user_id=? ORDER BY created_at DESC LIMIT 25').all(req.userId) as {id:string;selection_json:string;status:string;created_at:string}[]
   res.json({requests:rows.map(r=>({id:r.id,selection:JSON.parse(r.selection_json),status:r.status,createdAt:r.created_at}))})
@@ -205,12 +205,15 @@ app.post('/api/packages/requests',requireAuth,rateLimit({windowMs:60*60_000,limi
   const parsed=packageRequestBody.safeParse(req.body)
   if(!parsed.success)return res.status(400).json({error:'Invalid package quantities. Credits must be 10–1,000,000; other selected items 1–1,000,000.'})
   const selection=parsed.data
+  const pricing=selection.type==='custom'
+    ? calculateCustomPrice(selection)
+    : {currency:'USD' as const,totalCents:PACKAGES.find(p=>p.id===selection.packageId)!.usdCents,provisional:true}
   const current=(db.prepare('SELECT COUNT(*) AS n FROM package_requests WHERE user_id=? AND status=?').get(req.userId,'pending') as {n:number}).n
   if(current>=5)return res.status(429).json({error:'You already have five pending requests.'})
   const id=randomUUID(),createdAt=now()
   db.prepare('INSERT INTO package_requests(id,user_id,selection_json,status,created_at) VALUES(?,?,?,?,?)')
-    .run(id,req.userId,JSON.stringify(selection),'pending',createdAt)
-  res.status(201).json({request:{id,selection,status:'pending',createdAt},checkoutEnabled:false,message:'Request saved for review; no payment or credits have been processed.'})
+    .run(id,req.userId,JSON.stringify({...selection,pricing}),'pending',createdAt)
+  res.status(201).json({request:{id,selection:{...selection,pricing},pricing,status:'pending',createdAt},checkoutEnabled:false,message:'Request saved for review; no payment or credits have been processed.'})
 })
 
 app.get('/api/credits',requireAuth,(req:AuthRequest,res) => {
