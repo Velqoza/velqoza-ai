@@ -192,4 +192,16 @@ CREATE TABLE IF NOT EXISTS ai_window_usage (
 CREATE INDEX IF NOT EXISTS ai_window_usage_user_kind_time ON ai_window_usage(user_id,kind,created_at_ms);
 `)
 
+// Quote requests only. Never fulfill credits/usage on a request submission.
+db.exec(`
+CREATE TABLE IF NOT EXISTS package_requests (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ selection_json TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'pending',
+ created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS package_requests_owner ON package_requests(user_id,created_at DESC);
+`)
+
 }
