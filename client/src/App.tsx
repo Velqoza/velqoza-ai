@@ -146,6 +146,8 @@ export default function App() {
   const [threadSearch, setThreadSearch] = useState('')
   const [publishOpen, setPublishOpen] = useState(false)
   const [publishApproved, setPublishApproved] = useState(false)
+  const [publishDomainMode, setPublishDomainMode] = useState<'temporary'|'existing'|'buy'>('temporary')
+  const [publishDomain, setPublishDomain] = useState('')
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [inspectorFile, setInspectorFile] = useState('index.html')
   const [inspectorSearch, setInspectorSearch] = useState('')
@@ -730,6 +732,26 @@ export default function App() {
       <div className="projects-modal" role="dialog" aria-modal="true" aria-label="Publish website" onClick={e=>e.stopPropagation()}>
         <div className="modal-head"><div><span className="section-kicker">PUBLISH WEBSITE</span><h2>Publish {code.title}</h2></div><button className="icon-btn" onClick={()=>setPublishOpen(false)} aria-label="Close publishing"><X/></button></div>
         <p style={{lineHeight:1.7}}>Your site is currently a private preview. To put it online, export the static website and upload it to a hosting provider. A public URL is created by the provider, not by VELQOZA AI.</p>
+        <fieldset style={{border:'1px solid rgba(255,255,255,.14)',borderRadius:12,padding:14,margin:'16px 0'}}>
+          <legend style={{padding:'0 6px',fontWeight:700}}>Choose your website domain</legend>
+          <div style={{display:'grid',gap:10}}>
+            <label style={{display:'flex',gap:9,alignItems:'center',cursor:'pointer'}}><input type="radio" name="publish-domain" checked={publishDomainMode==='temporary'} onChange={()=>setPublishDomainMode('temporary')}/> Use a free hosting subdomain</label>
+            <label style={{display:'flex',gap:9,alignItems:'center',cursor:'pointer'}}><input type="radio" name="publish-domain" checked={publishDomainMode==='existing'} onChange={()=>setPublishDomainMode('existing')}/> I already own a domain</label>
+            <label style={{display:'flex',gap:9,alignItems:'center',cursor:'pointer'}}><input type="radio" name="publish-domain" checked={publishDomainMode==='buy'} onChange={()=>setPublishDomainMode('buy')}/> I want to buy a new domain</label>
+          </div>
+          {publishDomainMode==='existing' && <div style={{marginTop:14}}>
+            <label style={{display:'grid',gap:6}}>Your domain name
+              <input type="text" value={publishDomain} onChange={e=>setPublishDomain(e.target.value.trim().toLowerCase())} placeholder="example.com" maxLength={253} autoComplete="off"/>
+            </label>
+            <p style={{fontSize:12,opacity:.82,lineHeight:1.65,marginTop:8}}>After publishing to Netlify, add this domain in your Netlify site's Domain management. Update DNS records at your registrar exactly as Netlify instructs and confirm domain ownership. Entering it here does not connect or verify it.</p>
+            {publishDomain && !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$/.test(publishDomain) && <p role="alert" style={{fontSize:12}}>Enter a valid domain such as example.com (without https://).</p>}
+          </div>}
+          {publishDomainMode==='buy' && <div style={{marginTop:12}}>
+            <p style={{fontSize:12,opacity:.85,lineHeight:1.7}}>Domain purchasing is not integrated into VELQOZA AI yet. Check availability and renewal prices at a domain registrar, purchase using your own account, then select “I already own a domain” to connect it after publishing. Do not enter payment information here.</p>
+            <button type="button" className="outline-btn" onClick={()=>window.open('https://www.cloudflare.com/products/registrar/','_blank','noopener,noreferrer')}><ExternalLink size={14}/> Explore domain registration</button>
+          </div>}
+          {publishDomainMode==='temporary' && <p style={{fontSize:12,opacity:.8,lineHeight:1.6,marginTop:10}}>Your hosting provider can issue a free temporary subdomain. Its exact address will be shown after deployment.</p>}
+        </fieldset>
         <div style={{padding:'14px',margin:'14px 0',border:'1px solid rgba(255,255,255,.14)',borderRadius:12}}>
           <strong><ShieldCheck size={16} style={{verticalAlign:'middle',marginRight:6}}/> Before publishing</strong>
           <p style={{marginTop:8,lineHeight:1.6}}>Review all pages and links. Generated backend code, logins, orders, database access, and payments do NOT run in this static preview or static ZIP hosting. Remove secrets and private information; do not publish a demo as a live service.</p>
