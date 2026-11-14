@@ -159,3 +159,54 @@
   .publish-modal .publish-actions{margin-inline:-5px;padding-inline:5px}
   .publish-modal .publish-actions .download-btn{flex:1 1 190px}
 }
+
+/* Mobile editor toolbar: show EVERY control instead of overflowing offscreen.
+   The full-width Publish action stays easy to reach above the preview. */
+@media(max-width:700px){
+  .workspace,.workspace-head,.workspace-actions{min-width:0;max-width:100%}
+  .workspace-head{width:100%}
+  .workspace-actions{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:8px;
+    align-items:stretch;
+    width:100%;
+    min-width:0;
+    flex-wrap:unset;
+  }
+  .workspace-actions > button,
+  .workspace-actions > label{
+    display:flex;
+    flex:initial;
+    min-width:0;
+    width:100%;
+    min-height:48px;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    gap:5px;
+    padding:9px 5px;
+    font-size:11px!important;
+    line-height:1.25;
+    white-space:normal;
+    overflow-wrap:anywhere;
+  }
+  .workspace-actions > .outline-btn{font-size:11px!important;gap:5px}
+  .workspace-actions > .outline-btn svg{flex-shrink:0;width:16px;height:16px}
+  .workspace-actions > .workspace-publish-btn{
+    grid-column:1/-1;
+    grid-row:1;
+    min-height:52px;
+    font-size:15px!important;
+    font-weight:750;
+    border:1px solid #ae85ff;
+  }
+  .workspace-actions > .workspace-publish-btn svg{width:19px;height:19px}
+  .workspace-actions > .download-btn:not(.workspace-publish-btn){font-size:11px!important}
+  .project-title{min-width:0;max-width:100%;flex-wrap:wrap}
+  .project-title input{min-width:0;max-width:100%;width:min(290px,100%)}
+  .saved-indicator{max-width:100%;overflow-wrap:anywhere}
+}
+@media(max-width:360px){
+  .workspace-actions{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
