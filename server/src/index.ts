@@ -446,6 +446,21 @@ app.post('/api/account/sign-out-other-devices',requireAuth,(req:AuthRequest,res)
   return res.json({ok:true,token:signToken(req.userId!)})
 })
 
+app.get('/api/announcements',(_req,res)=>res.json({announcements:db.prepare('SELECT id,title,body,created_at AS createdAt FROM site_announcements ORDER BY created_at DESC LIMIT 10').all()}))
+const announcementInput=z.object({title:z.string().trim().min(3).max(100),body:z.string().trim().min(3).max(1500)})
+app.post('/api/admin/announcements',requireAuth,requireAdmin,(req:AuthRequest,res)=>{
+ const parsed=announcementInput.safeParse(req.body)
+ if(!parsed.success)return res.status(400).json({error:'Title must have 3–100 characters and message 3–1500.'})
+ const id=randomUUID()
+ db.prepare('INSERT INTO site_announcements(id,title,body,created_at) VALUES(?,?,?,?)').run(id,parsed.data.title,parsed.data.body,new Date().toISOString())
+ audit(req.userId!,null,'announcement.created',id);res.status(201).json({ok:true,id})
+})
+app.delete('/api/admin/announcements/:id',requireAuth,requireAdmin,(req:AuthRequest,res)=>{
+ if(!z.string().uuid().safeParse(req.params.id).success)return res.status(400).json({error:'Invalid ID.'})
+ const result=db.prepare('DELETE FROM site_announcements WHERE id=?').run(req.params.id)
+ if(!result.changes)return res.status(404).json({error:'Not found.'})
+ audit(req.userId!,null,'announcement.deleted',req.params.id);res.json({ok:true})
+})
 // Owner-only management. ADMIN_EMAIL must be set on the server.
 app.get('/api/admin/overview', requireAuth,requireAdmin,(req:AuthRequest,res)=>{
   const users=db.prepare(`SELECT u.id,u.email,u.created_at AS createdAt,u.is_banned AS isBanned,
