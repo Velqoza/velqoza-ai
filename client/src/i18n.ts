@@ -783,6 +783,14 @@ const translations:Record<string,[string,string]> = {
   "What VELQZA remembers": [
     "شو بتذكّر VELQOZA",
     "מה VELQOZA זוכר"
+  ],
+  "Account Control": [
+    "إدارة الحساب",
+    "ניהול חשבון"
+  ],
+  "Menu": [
+    "القائمة",
+    "תפריט"
   ]
 }
 export function translate(language:UiLanguage,english:string):string{
