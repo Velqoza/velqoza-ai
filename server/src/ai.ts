@@ -231,5 +231,26 @@ If user asks about previous events, explain the limits of the available history;
     max_output_tokens:searchWeb?2500:1800
   })
   if (!response.output_text?.trim()) throw new Error('AI returned an empty chat response.')
-  return response.output_text.trim()
+  const answer=response.output_text.trim()
+  if(!searchWeb) return answer
+  // Hosted web citations are structured annotations, not always included as
+  // markdown in output_text. Surface their trusted URLs explicitly.
+  type Citation={type?:string;url?:string;title?:string}
+  const items=response.output as unknown as {type?:string;content?:{annotations?:Citation[]}[]}[]
+  const sources=new Map<string,string>()
+  for(const item of items){
+    for(const part of item.content||[]){
+      for(const annotation of part.annotations||[]){
+        if(annotation.type!=='url_citation'||!annotation.url||!/^https:\/\//i.test(annotation.url))continue
+        try{
+          const url=new URL(annotation.url)
+          if(!['https:','http:'].includes(url.protocol))continue
+          const label=(annotation.title||url.hostname).replace(/[\[\]()\r\n]/g,'').slice(0,90)
+          sources.set(url.toString(),label)
+        }catch{/* Ignore malformed model annotations. */}
+      }
+    }
+  }
+  if(!sources.size)return answer
+  return answer+'\n\nSources:\n'+[...sources].slice(0,8).map(([url,label])=>'- ['+label+']('+url+')').join('\n')
 }
