@@ -55,6 +55,33 @@ export async function probeSupabaseDatabase():Promise<void> {
     const valid=tables>=20 && !!required.rows[0]?.users && !!required.rows[0]?.projects && !!required.rows[0]?.payments
     console.info(valid?'[Supabase probe] PASS — private AI schema and required tables are accessible (read-only).':
       '[Supabase probe] FAIL — connected but the private AI schema is incomplete.')
+    // Migration preflight: read-only counts only. No row content, passwords or
+    // connection string values are logged. Keep the original database active.
+    const targetCounts=await client.query<{users:number;projects:number;payments:number}>(`
+      SELECT (SELECT count(*)::int FROM velqoza_ai.users) AS users,
+             (SELECT count(*)::int FROM velqoza_ai.projects) AS projects,
+             (SELECT count(*)::int FROM velqoza_ai.package_payments) AS payments
+    `)
+    const origin=process.env.DATABASE_URL?.trim()
+    if(origin){
+      let originUrl:URL
+      try{originUrl=new URL(origin)}catch{throw new Error('Invalid primary database URL.')}
+      const privateHost=/^dpg-[a-z0-9-]+$/.test(originUrl.hostname)
+      if(privateHost){
+        const source=new pg.Client({connectionString:origin,ssl:false,connectionTimeoutMillis:9000,query_timeout:9000,
+          application_name:'velqoza-ai-readonly-migration-preflight'})
+        try{
+          await source.connect()
+          const sourceCounts=await source.query<{users:number;projects:number;payments:number}>(`
+            SELECT (SELECT count(*)::int FROM velqoza_ai.users) AS users,
+                   (SELECT count(*)::int FROM velqoza_ai.projects) AS projects,
+                   (SELECT count(*)::int FROM velqoza_ai.package_payments) AS payments
+          `)
+          console.info('[Migration preflight] Read-only counts source='+JSON.stringify(sourceCounts.rows[0])+
+            ' target='+JSON.stringify(targetCounts.rows[0])+'. No data moved.')
+        }finally{await source.end().catch(()=>{})}
+      }else console.info('[Migration preflight] Source is not a private Render endpoint; skipping counts.')
+    }
   } catch(err) {
     const code=(err&&typeof err==='object'&&'code' in err&&typeof err.code==='string')?err.code:'connection-error'
     console.warn('[Supabase probe] Could not connect/read schema. Code: '+String(code).slice(0,24)+'; active database unchanged.')
