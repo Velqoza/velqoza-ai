@@ -501,6 +501,65 @@ export default function App() {
     try { const {project} = await api.rename(id, renameValue.trim()); setProjects(p => p.map(x => x.id === id ? project : x)); if (active?.id === id) { setActive(project); setProjectName(project.name) }; setRenameId(null) }
     catch(e) { flash((e as Error).message) }
   }
+
+  async function importExistingZip(file: File | undefined) {
+    if (!file) return
+    if (file.size > 8 * 1024 * 1024) { flash('ZIP too large (8 MB maximum).'); return }
+    if (changed && !window.confirm('Importing opens a new project. Save your current changes first. Continue?')) return
+    setBusy(true)
+    try {
+      const archive = await JSZip.loadAsync(file)
+      const entries = Object.entries(archive.files).filter(([name,entry]) =>
+        !entry.dir && !name.startsWith('__MACOSX/') && !name.split('/').some(x => x === '..' || x === '__proto__' || x === 'node_modules' || x === '.git'))
+      if (entries.length > 80) throw new Error('Too many files in ZIP (max 80).')
+      // Only code files can be imported in this first version. Binary media is rejected
+      // rather than silently dropping images, sound, or video from an imported site.
+      const media = entries.map(([n])=>n).filter(n => /\.(png|jpe?g|gif|webp|ico|avif|mp3|wav|ogg|mp4|webm|mov|woff2?|ttf|otf)$/i.test(n))
+      if (media.length) throw new Error('This ZIP contains media (' + media.slice(0,3).join(', ') + '). Asset import is not supported yet; no files were changed.')
+      const htmlNames = entries.map(([n])=>n).filter(n=>/\.html?$/i.test(n))
+      if (!htmlNames.length) throw new Error('ZIP needs an index.html page.')
+      const rootIndex = htmlNames.find(n => /(^|\/)index\.html$/i.test(n))
+      if (!rootIndex) throw new Error('Could not find index.html in the ZIP.')
+      const prefix = rootIndex.slice(0,rootIndex.length-'index.html'.length)
+      const flat = entries.filter(([n])=>n.startsWith(prefix)).map(([n,entry])=>[n.slice(prefix.length),entry] as const)
+        .filter(([n])=>n && !n.includes('/') && /^[a-zA-Z0-9_.-]+$/.test(n))
+      const textEntries = flat.filter(([n])=>/\.(html?|css|js|json|md|txt)$/i.test(n))
+      if (textEntries.length>35) throw new Error('Too many source files in ZIP.')
+      const contents:Record<string,string>={}
+      let total=0
+      for (const [name,entry] of textEntries) {
+        const value=await entry.async('string')
+        total+=value.length
+        if (value.length>180000 || total>550000) throw new Error('ZIP source code exceeds safe import limits.')
+        contents[name]=value
+      }
+      const main=contents['index.html'] || contents[Object.keys(contents).find(n=>n.toLowerCase()==='index.html')||'']
+      if (!main) throw new Error('index.html is missing or empty.')
+      const cssNames=Object.keys(contents).filter(n=>/\.css$/i.test(n))
+      const jsNames=Object.keys(contents).filter(n=>/\.js$/i.test(n))
+      const primaryCss=cssNames.find(n=>n==='styles.css')||cssNames.find(n=>n==='style.css')||cssNames[0]
+      const primaryJs=jsNames.find(n=>n==='script.js')||jsNames.find(n=>n==='main.js')||jsNames[0]
+      // Keep the original HTML structure. The builder injects these shared sources.
+      const stripExistingTags=(html:string)=>html
+        .replace(/<link\b[^>]*rel=["']stylesheet["'][^>]*>/gi,tag => /href=["'](?:\.\/)?[^:"']+\.css["']/i.test(tag)?'':tag)
+        .replace(/<script\b[^>]*src=["'](?:\.\/)?[^:"']+\.js["'][^>]*><\/script>/gi,'')
+      const pages:Record<string,string>={}
+      for (const [name,value] of Object.entries(contents)) if (/\.html$/i.test(name) && Object.keys(pages).length<12) pages[name.toLowerCase()]=stripExistingTags(value)
+      if (!pages['index.html']) throw new Error('Missing index.html in supported website root.')
+      const extras:Record<string,string>={}
+      for (const [name,value] of Object.entries(contents)) {
+        if (/\.html$/i.test(name) || name===primaryCss || name===primaryJs) continue
+        if (Object.keys(extras).length < 25 && /\.(css|js|json|md|txt)$/i.test(name)) extras[name]=value
+      }
+      const imported:SiteCode={title:file.name.replace(/\.zip$/i,'')||'Imported website',description:'Imported from an existing website ZIP. Edit it using VELQOZA AI.',html:pages['index.html'],css:primaryCss?contents[primaryCss]:'',js:primaryJs?contents[primaryJs]:'',pages,files:extras}
+      workSessionRef.current+=1;activeIdRef.current=undefined;setSaveStatus('pending')
+      setCode(imported);setActive(null);setProjectName(imported.title);setPreviewPage('index.html')
+      setInspectorFile('index.html');setUndoStack([]);setMessages([]);setTab('editor')
+      flash('Website imported. Review preview and Save; unsupported nested files were not included.')
+    } catch(error) { flash(error instanceof Error?error.message:'ZIP import failed.') }
+    finally {setBusy(false)}
+  }
+
   async function downloadFiles() {
     if (!code) return
     const zip = new JSZip()
@@ -575,6 +634,7 @@ export default function App() {
               <label><LayoutTemplate size={14}/><select value={category} onChange={e=>setCategory(e.target.value)}>{['Business','Portfolio','E-commerce','Restaurant','Blog','Agency','Landing Page','SaaS','Other'].map(x=><option key={x}>{x}</option>)}</select><ChevronDown size={13}/></label>
               <label><Palette size={14}/><select value={style} onChange={e=>setStyle(e.target.value)}>{['Minimal','Modern','Luxury','Futuristic','Creative'].map(x=><option key={x}>{x}</option>)}</select><ChevronDown size={13}/></label>
             </div>
+            <label className="outline-btn" style={{cursor:'pointer'}} title="Import existing HTML/CSS/JavaScript website ZIP"><FolderOpen size={15}/> Import ZIP<input type="file" accept=".zip,application/zip" hidden onChange={e=>{void importExistingZip(e.target.files?.[0]);e.target.value=''}}/></label>
             <button className="generate-btn" onClick={generate} disabled={busy}>{busy?<><LoaderCircle className="spin" size={17}/> Creating...</>:<>Generate website <Sparkles size={16}/></>}</button>
           </div>
           <div className="color-row"><span>COLOR DIRECTION</span><input value={colors} onChange={e=>setColors(e.target.value)} aria-label="Color direction"/><span className="color-swatch swatch-purple"/><span className="color-swatch swatch-blue"/><span className="color-swatch swatch-ink"/></div>
@@ -623,7 +683,7 @@ export default function App() {
       </section>
       <footer className="footer"><a href="#" className="brand"><span className="brand-mark"><Sparkles size={17}/></span>VELQOZA<span className="brand-ai"> AI</span></a><span>Build beyond imagination.</span><span>© {new Date().getFullYear()} VELQOZA AI</span></footer>
     </main> : <main className="workspace">
-      <div className="workspace-head"><div><button className="back-link" onClick={()=>setTab('builder')}>← Back to home</button><div className="project-title"><input value={projectName} onChange={e=>setProjectName(e.target.value)} aria-label="Project name"/><span className={`saved-indicator ${changed?'has-changes':''}`} title={saveError || 'Automatically saved to your account'}>{!user?'LOGIN TO SAVE':saveStatus==='error'?'SAVE FAILED — RETRY':saveStatus==='saving'?'SAVING…':changed?'AUTO-SAVE PENDING':'ALL CHANGES SAVED'}</span></div></div><div className="workspace-actions"><button className="outline-btn" onClick={undoLastEdit} disabled={!undoStack.length} title="Restore the previous AI edit (this session)"><RotateCcw size={15}/> Undo AI edit</button><button className="outline-btn" onClick={()=>setInspectorOpen(v=>!v)}><FolderTree size={15}/> Files</button><button className="outline-btn" onClick={saveProject}><Save size={15}/> Save</button><button className="outline-btn" onClick={openPreview}><ExternalLink size={15}/> Open</button><button className="download-btn" onClick={downloadFiles}><Download size={15}/> Export ZIP</button></div></div>
+      <div className="workspace-head"><div><button className="back-link" onClick={()=>setTab('builder')}>← Back to home</button><div className="project-title"><input value={projectName} onChange={e=>setProjectName(e.target.value)} aria-label="Project name"/><span className={`saved-indicator ${changed?'has-changes':''}`} title={saveError || 'Automatically saved to your account'}>{!user?'LOGIN TO SAVE':saveStatus==='error'?'SAVE FAILED — RETRY':saveStatus==='saving'?'SAVING…':changed?'AUTO-SAVE PENDING':'ALL CHANGES SAVED'}</span></div></div><div className="workspace-actions"><label className="outline-btn" style={{cursor:'pointer'}} title="Import existing HTML/CSS/JavaScript website ZIP"><FolderOpen size={15}/> Import ZIP<input type="file" accept=".zip,application/zip" hidden onChange={e=>{void importExistingZip(e.target.files?.[0]);e.target.value=''}}/></label><button className="outline-btn" onClick={undoLastEdit} disabled={!undoStack.length} title="Restore the previous AI edit (this session)"><RotateCcw size={15}/> Undo AI edit</button><button className="outline-btn" onClick={()=>setInspectorOpen(v=>!v)}><FolderTree size={15}/> Files</button><button className="outline-btn" onClick={saveProject}><Save size={15}/> Save</button><button className="outline-btn" onClick={openPreview}><ExternalLink size={15}/> Open</button><button className="download-btn" onClick={downloadFiles}><Download size={15}/> Export ZIP</button></div></div>
       <div className="workspace-grid">
         <aside className="assistant-panel">
           <div className="assistant-title"><div className="assistant-icon"><Sparkles size={16}/></div><div><strong>VELQOZA assistant</strong><small>AI DESIGN PARTNER</small></div><span className="online-dot"/></div>
