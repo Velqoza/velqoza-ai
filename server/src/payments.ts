@@ -8,6 +8,8 @@ export function paypalMode(): 'sandbox'|'live'|null {
   const env=process.env.PAYPAL_ENV
   const credentials=Boolean(process.env.PAYPAL_CLIENT_ID?.trim()&&process.env.PAYPAL_CLIENT_SECRET?.trim())
   if(!credentials)return null
+  // Extra fail-closed guard: production Live can never run on our isolated staging service.
+  if(env==='live'&&process.env.RENDER_SERVICE_ID==='srv-dbs3comi0phs73c0s1dg')return null
   if(env==='sandbox'&&process.env.STAGING_INIT_SCHEMA==='true')return 'sandbox'
   if(env==='live'&&process.env.STAGING_INIT_SCHEMA!=='true'&&
      process.env.NODE_ENV==='production'&&process.env.ENABLE_LIVE_PAYMENTS==='true'&&
