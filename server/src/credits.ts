@@ -12,6 +12,31 @@ export const PACKAGES = [
   { id:'business',label:'Business',usdCents:11900,credits:700,messages:300,edits:90,generations:35 },
   { id:'agency',label:'Agency',usdCents:24900,credits:1600,messages:1000,edits:250,generations:100 }
 ] as const
+// Provisional USD unit prices in cents. Each may be configured on the server.
+// Client-visible prices are always derived from these authoritative values.
+const priceCents=(key:string,fallback:number)=>{
+  const raw=process.env[key]
+  if(raw===undefined||raw.trim()==='')return fallback
+  const n=Number(raw)
+  if(!Number.isSafeInteger(n)||n<1||n>100_000)throw new Error(`Invalid ${key} setting`)
+  return n
+}
+export const CUSTOM_UNIT_PRICES_CENTS={
+  credits:priceCents('CUSTOM_CREDIT_CENTS',20),
+  messages:priceCents('CUSTOM_MESSAGE_CENTS',10),
+  edits:priceCents('CUSTOM_EDIT_CENTS',75),
+  generations:priceCents('CUSTOM_GENERATION_CENTS',250)
+} as const
+export type CustomQuantity={credits:number;messages:number;edits:number;generations:number}
+export function calculateCustomPrice(quantity:CustomQuantity){
+  const lineItems=(Object.keys(CUSTOM_UNIT_PRICES_CENTS) as (keyof CustomQuantity)[]).map(key=>({
+    key,quantity:quantity[key],unitCents:CUSTOM_UNIT_PRICES_CENTS[key],
+    subtotalCents:quantity[key]*CUSTOM_UNIT_PRICES_CENTS[key]
+  }))
+  const totalCents=lineItems.reduce((sum,item)=>sum+item.subtotalCents,0)
+  if(!Number.isSafeInteger(totalCents))throw new Error('Custom price exceeds supported range.')
+  return {currency:'USD' as const,lineItems,totalCents,provisional:true}
+}
 export const CUSTOM_LIMITS = {
  credits:{min:10,max:1_000_000},
  messages:{min:1,max:1_000_000},
