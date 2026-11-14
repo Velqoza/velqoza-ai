@@ -19,7 +19,7 @@ import { studioPluginCatalog, runStudioPlugins } from './studioPlugins.js'
 import type { AuthRequest, SiteCode } from './types.js'
 import { validateExtraFiles } from './projectFiles.js'
 import { COSTS, PACKAGES, CUSTOM_LIMITS, CUSTOM_UNIT_PRICES_CENTS, calculateCustomPrice, getCredits, getCreditHistory, chargeAI, refundAI, purchasedQuota, redeemVoucher } from './credits.js'
-import { paypalReady, paypalMode, createCheckout, captureCheckout, retrieveCompletedCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, verifyPayPalWebhook, recordVerifiedPaymentEvent, completedWebhookReference, type PayPalWebhookEvent } from './payments.js'
+import { paypalReady, paypalMode, createCheckout, resumeCheckout, captureCheckout, retrieveCompletedCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, verifyPayPalWebhook, recordVerifiedPaymentEvent, completedWebhookReference, type PayPalWebhookEvent } from './payments.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -250,23 +250,28 @@ app.post('/api/packages/checkout',requireAuth,rateLimit({windowMs:60*60_000,limi
   if(pricing.amountCents<50||pricing.amountCents>1_000_000)return res.status(400).json({error:'Checkout is limited to $0.50–$10,000. Reduce the custom quantity.'})
   const origin=(process.env.CLIENT_ORIGIN||'').split(',').map(x=>x.trim()).find(x=>x.startsWith('https://'))
   if(!origin)return res.status(503).json({error:'Secure checkout return origin is not configured.'})
-  const existing=db.prepare('SELECT id,status,paypal_order_id FROM package_payments WHERE request_id=? AND user_id=?')
-    .get(record.id,req.userId) as {id:string;status:string;paypal_order_id:string|null}|undefined
+  const existing=db.prepare('SELECT id,status,paypal_order_id,amount_cents,currency FROM package_payments WHERE request_id=? AND user_id=?')
+    .get(record.id,req.userId) as {id:string;status:string;paypal_order_id:string|null;amount_cents:number;currency:string}|undefined
   if(existing?.status==='completed')return res.status(409).json({error:'Package already fulfilled.'})
+  if(existing && (existing.amount_cents!==pricing.amountCents||existing.currency!=='USD'))
+    return res.status(409).json({error:'Stored payment price differs from the quote. Contact support.'})
+  if(existing && existing.status!=='created' && existing.status!=='creating')
+    return res.status(409).json({error:'Payment is not available for retry.'})
   const paymentId=existing?.id||randomUUID()
   if(!existing){
     db.prepare('INSERT INTO package_payments(id,user_id,request_id,amount_cents,currency,selection_json,status,created_at) VALUES(?,?,?,?,?,?,?,?)')
       .run(paymentId,req.userId,record.id,pricing.amountCents,'USD',serializePaymentSnapshot(selection,pricing),'creating',now())
   }
   try {
-    const order=await createCheckout(paymentId,pricing.amountCents,selection.type==='custom'?'VELQOZA AI Custom':('VELQOZA AI '+selection.packageId),origin.replace(/\/$/,''))
-    if(existing?.paypal_order_id && existing.paypal_order_id!==order.orderId)throw new Error('Payment order mismatch.')
+    const order=existing?.paypal_order_id
+      ? await resumeCheckout(existing.paypal_order_id,paymentId,pricing.amountCents)
+      : await createCheckout(paymentId,pricing.amountCents,selection.type==='custom'?'VELQOZA AI Custom':('VELQOZA AI '+selection.packageId),origin.replace(/\/$/,''))
     db.prepare("UPDATE package_payments SET paypal_order_id=?,status='created' WHERE id=? AND status IN ('creating','created')")
       .run(order.orderId,paymentId)
     res.json({orderId:order.orderId,approvalUrl:order.approvalUrl,sandbox:paypalMode()==='sandbox',paymentMode:paypalMode()})
   }catch(error){
-    console.error('PayPal order creation failed',error)
-    res.status(502).json({error:'Could not create PayPal checkout. Retry from the package request.'})
+    console.error('PayPal order create/resume failed',error)
+    res.status(502).json({error:'Could not open the PayPal order. If you completed payment, use Check completed payment; otherwise contact support.'})
   }
 })
 app.post('/api/packages/checkout/capture',requireAuth,rateLimit({windowMs:60*60_000,limit:8,standardHeaders:'draft-7',legacyHeaders:false}),async(req:AuthRequest,res)=>{
