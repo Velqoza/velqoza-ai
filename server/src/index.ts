@@ -353,10 +353,44 @@ app.post('/api/ai/edit',requireAuth, singleFlight('edit'), aiBudgetGuard('edit')
 
 
 // AI Studio: isolated, account-owned conversations and opt-in local plugins.
-const studioMessage = z.object({message:z.string().trim().min(1).max(6000), pluginIds:z.array(z.enum(['seo-audit','accessibility','project-map','launch-checklist'])).max(4).default([]), projectCode:safeCode.optional()})
+const studioMessage = z.object({searchWeb:z.boolean().default(false),message:z.string().trim().min(1).max(6000), pluginIds:z.array(z.enum(['seo-audit','accessibility','project-map','launch-checklist'])).max(4).default([]), projectCode:safeCode.optional()})
 const threadIdSchema = z.string().uuid()
 const ownsThread = (id:string, userId:string) => !!db.prepare('SELECT 1 FROM ai_threads WHERE id=? AND user_id=?').get(id,userId)
 const serializeThread = (row:any) => ({id:row.id,title:row.title,createdAt:row.created_at,updatedAt:row.updated_at})
+// Account-owned, opt-in pinned memory. Users can inspect/delete every entry.
+const memoryContent=z.string().trim().min(3).max(500)
+app.get('/api/studio/memory',requireAuth,(req:AuthRequest,res)=>{
+  const rows=db.prepare('SELECT id,content,created_at FROM studio_memories WHERE user_id=? ORDER BY created_at DESC LIMIT 50')
+    .all(req.userId) as {id:string;content:string;created_at:string}[]
+  res.json({memories:rows.map(x=>({id:x.id,content:x.content,createdAt:x.created_at}))})
+})
+app.post('/api/studio/memory',requireAuth,(req:AuthRequest,res)=>{
+  const parsed=z.object({content:memoryContent}).safeParse(req.body)
+  if(!parsed.success) return res.status(400).json({error:'Memory must contain 3–500 characters.'})
+  const count=(db.prepare('SELECT COUNT(*) AS n FROM studio_memories WHERE user_id=?').get(req.userId) as {n:number}).n
+  if(count>=50)return res.status(400).json({error:'Memory limit reached (50). Delete an old entry first.'})
+  const id=randomUUID(),stamp=now()
+  db.prepare('INSERT INTO studio_memories(id,user_id,content,created_at) VALUES(?,?,?,?)').run(id,req.userId,parsed.data.content,stamp)
+  res.status(201).json({memory:{id,content:parsed.data.content,createdAt:stamp}})
+})
+app.delete('/api/studio/memory/:id',requireAuth,(req:AuthRequest,res)=>{
+  if(!z.string().uuid().safeParse(req.params.id).success)return res.status(404).json({error:'Memory not found.'})
+  const result=db.prepare('DELETE FROM studio_memories WHERE id=? AND user_id=?').run(req.params.id,req.userId)
+  if(!result.changes)return res.status(404).json({error:'Memory not found.'})
+  res.json({ok:true})
+})
+// Context retrieval is bounded, user-scoped, and never queries other accounts.
+function priorStudioContext(userId:string,currentThreadId:string,query:string):string[]{
+  const candidates=db.prepare(`SELECT m.role,m.content FROM ai_thread_messages m
+    JOIN ai_threads t ON t.id=m.thread_id
+    WHERE t.user_id=? AND t.id<>? AND m.role='user'
+    ORDER BY m.created_at DESC LIMIT 100`).all(userId,currentThreadId) as {role:string;content:string}[]
+  const words=new Set(query.toLowerCase().split(/[^\\p{L}\\p{N}]+/u).filter(w=>w.length>=4))
+  const ranked=candidates.map(c=>({value:c.content,score:[...words].filter(w=>c.content.toLowerCase().includes(w)).length}))
+    .filter(c=>c.score>0).sort((a,b)=>b.score-a.score)
+  return ranked.slice(0,8).map(c=>c.value.slice(0,350))
+}
+
 app.get('/api/studio/plugins', requireAuth, (_req,res)=>res.json({plugins:studioPluginCatalog}))
 app.get('/api/studio/threads',requireAuth,(req:AuthRequest,res)=>{
   const rows = db.prepare('SELECT * FROM ai_threads WHERE user_id=? ORDER BY updated_at DESC LIMIT 100').all(req.userId)
@@ -383,7 +417,7 @@ app.post('/api/studio/threads/:id/messages',requireAuth, singleFlight('studio'),
   if (!threadIdSchema.safeParse(req.params.id).success || !ownsThread(req.params.id,req.userId!)) return res.status(404).json({error:'Conversation not found.'})
   const parsed=studioMessage.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({error:'Message or selected plugins are invalid.'})
-  const {message,pluginIds,projectCode}=parsed.data
+  const {message,pluginIds,projectCode,searchWeb}=parsed.data
   const count=(db.prepare('SELECT COUNT(*) AS n FROM ai_thread_messages WHERE thread_id=?').get(req.params.id) as {n:number}).n
   if (count>=500) return res.status(400).json({error:'Conversation reached its message limit. Start a new conversation.'})
   const reports=runStudioPlugins(pluginIds,projectCode)
@@ -391,7 +425,9 @@ app.post('/api/studio/threads/:id/messages',requireAuth, singleFlight('studio'),
   const creditRef=reserveOrReject(req,res,'studio')
   if (!creditRef) return
   try {
-    const reply=await chatWithStudio([...history.reverse(),{role:'user',content:message}],reports,projectCode ? `Title: ${projectCode.title}; description: ${projectCode.description}; pages: ${Object.keys(projectCode.pages||{'index.html':projectCode.html}).join(', ')}; files: ${Object.keys(projectCode.files||{}).join(', ')}`:undefined)
+    const memories=db.prepare('SELECT content FROM studio_memories WHERE user_id=? ORDER BY created_at DESC LIMIT 30').all(req.userId) as {content:string}[]
+    const priorConversation=priorStudioContext(req.userId!,req.params.id,message)
+    const reply=await chatWithStudio([...history.reverse(),{role:'user',content:message}],reports,projectCode ? `Title: ${projectCode.title}; description: ${projectCode.description}; pages: ${Object.keys(projectCode.pages||{'index.html':projectCode.html}).join(', ')}; files: ${Object.keys(projectCode.files||{}).join(', ')}`:undefined,{memoryItems:memories.map(m=>m.content),priorConversation,searchWeb})
     const stamp=now(), userId=randomUUID(),assistantId=randomUUID()
     db.transaction(()=>{
       db.prepare('INSERT INTO ai_thread_messages(id,thread_id,role,content,created_at) VALUES (?,?,?,?,?)').run(userId,req.params.id,'user',message,stamp)
