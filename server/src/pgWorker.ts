@@ -9,6 +9,13 @@ types.setTypeParser(20, (v:string) => Number(v)) // COUNT(*) returns int8
 // Render's same-region internal Postgres hostname uses a private network and a
 // self-signed certificate. Do not force certificate verification there.
 // Keep full TLS certificate verification for external/public database hosts.
+// Staging defaults to the existing private schema. A dedicated production
+// schema may be selected only through an explicit, allowlisted backend setting.
+const schema=process.env.VELQOZA_DB_SCHEMA || 'velqoza_ai'
+if(!['velqoza_ai','velqoza_ai_production'].includes(schema))
+  throw new Error('Unsupported VELQOZA_DB_SCHEMA value.')
+if(schema==='velqoza_ai_production' && process.env.STAGING_INIT_SCHEMA==='true')
+  throw new Error('Staging cannot access the production database schema.')
 const dbUrl=new URL(workerData.connectionString)
 const dbHost = dbUrl.hostname
 // Supabase's transaction pooler drops session state between statements.
@@ -49,7 +56,7 @@ async function run(op: string, sql?: string, args?: unknown[]) {
       await client.query(stagingSchemaSql)
       console.log('[VELQOZA] Isolated staging PostgreSQL schema checked.')
     }
-    await client.query('SET search_path TO velqoza_ai, pg_catalog')
+    await client.query('SET search_path TO '+schema+', pg_catalog')
     connected = true
   }
   if (op === 'begin') { await client.query('BEGIN'); return {} }
