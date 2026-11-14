@@ -239,4 +239,16 @@ CREATE TABLE IF NOT EXISTS quota_reservations (
 );
 `)
 
+// Only verified PayPal webhook events are recorded here; event IDs are unique.
+db.exec(`
+CREATE TABLE IF NOT EXISTS payment_webhook_events (
+  id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  capture_id TEXT,
+  payment_id TEXT,
+  received_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS webhook_events_capture ON payment_webhook_events(capture_id);
+`)
+
 }
