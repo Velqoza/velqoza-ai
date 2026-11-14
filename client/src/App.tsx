@@ -146,6 +146,9 @@ export default function App() {
   const [threadSearch, setThreadSearch] = useState('')
   const [publishOpen, setPublishOpen] = useState(false)
   const [publishApproved, setPublishApproved] = useState(false)
+  const [publishing,setPublishing] = useState(false)
+  const [publishedUrl,setPublishedUrl] = useState('')
+  const [publishError,setPublishError] = useState('')
   const [publishDomainMode, setPublishDomainMode] = useState<'temporary'|'existing'|'buy'>('temporary')
   const [publishDomain, setPublishDomain] = useState('')
   const [inspectorOpen, setInspectorOpen] = useState(false)
@@ -603,6 +606,37 @@ export default function App() {
     finally {setBusy(false)}
   }
 
+  async function openPublish() {
+    setPublishOpen(true);setPublishApproved(false);setPublishError('');setPublishedUrl('')
+    const id=activeIdRef.current
+    if (!id) return
+    try {const result=await api.published(id);if(result.publication)setPublishedUrl(result.publication.url)}
+    catch(error){setPublishError(error instanceof Error?error.message:'Could not check publication status.')}
+  }
+  async function publishNow() {
+    if (!user || !code || !publishApproved || publishing) return
+    setPublishing(true);setPublishError('')
+    try {
+      // The backend publishes only a saved, owned project. Ensure latest editor snapshot
+      // is persisted before publishing, including any recent changes.
+      await persistProject(true)
+      if (saveSnapshotRef.current.code !== code || saveStatus==='error') throw new Error('Save the latest project changes first.')
+      const id=activeIdRef.current
+      if (!id) throw new Error('Project has not been saved yet.')
+      const result=await api.publish(id)
+      setPublishedUrl(result.url)
+      flash(result.updated?'Public website updated.':'Website published!')
+    } catch(error){setPublishError(error instanceof Error?error.message:'Publishing failed.')}
+    finally {setPublishing(false)}
+  }
+  async function unpublishNow() {
+    const id=activeIdRef.current
+    if (!id || !publishedUrl || !window.confirm('Unpublish this site? Its public link will stop working.')) return
+    setPublishing(true);setPublishError('')
+    try {await api.unpublish(id);setPublishedUrl('');flash('Website unpublished.')}
+    catch(error){setPublishError(error instanceof Error?error.message:'Unpublish failed.')}
+    finally {setPublishing(false)}
+  }
   async function downloadFiles() {
     if (!code) return
     const zip = new JSZip()
@@ -726,7 +760,7 @@ export default function App() {
       </section>
       <footer className="footer"><a href="#" className="brand"><span className="brand-mark"><Sparkles size={17}/></span>VELQOZA<span className="brand-ai"> AI</span></a><span>Build beyond imagination.</span><span>© {new Date().getFullYear()} VELQOZA AI</span></footer>
     </main> : <main className="workspace">
-      <div className="workspace-head"><div><button className="back-link" onClick={()=>setTab('builder')}>← Back to home</button><div className="project-title"><input value={projectName} onChange={e=>setProjectName(e.target.value)} aria-label="Project name"/><span className={`saved-indicator ${changed?'has-changes':''}`} title={saveError || 'Automatically saved to your account'}>{!user?'LOGIN TO SAVE':saveStatus==='error'?'SAVE FAILED — RETRY':saveStatus==='saving'?'SAVING…':changed?'AUTO-SAVE PENDING':'ALL CHANGES SAVED'}</span></div></div><div className="workspace-actions"><label className="outline-btn" style={{cursor:'pointer'}} title="Import existing HTML/CSS/JavaScript website ZIP"><FolderOpen size={15}/> Import ZIP<input type="file" accept=".zip,application/zip" hidden onChange={e=>{void importExistingZip(e.target.files?.[0]);e.target.value=''}}/></label><button className="outline-btn" onClick={undoLastEdit} disabled={!undoStack.length} title="Restore the previous AI edit (this session)"><RotateCcw size={15}/> Undo AI edit</button><button className="outline-btn" onClick={()=>setHistoryOpen(v=>!v)}><RotateCcw size={15}/> History ({undoStack.length})</button><button className="outline-btn" onClick={()=>setInspectorOpen(v=>!v)}><FolderTree size={15}/> Files</button><button className="outline-btn" onClick={saveProject}><Save size={15}/> Save</button><button className="outline-btn" onClick={openPreview}><ExternalLink size={15}/> Open</button><button className="download-btn" onClick={()=>{setPublishApproved(false);setPublishOpen(true)}}><Rocket size={15}/> Publish</button><button className="download-btn" onClick={downloadFiles}><Download size={15}/> Export ZIP</button></div></div>
+      <div className="workspace-head"><div><button className="back-link" onClick={()=>setTab('builder')}>← Back to home</button><div className="project-title"><input value={projectName} onChange={e=>setProjectName(e.target.value)} aria-label="Project name"/><span className={`saved-indicator ${changed?'has-changes':''}`} title={saveError || 'Automatically saved to your account'}>{!user?'LOGIN TO SAVE':saveStatus==='error'?'SAVE FAILED — RETRY':saveStatus==='saving'?'SAVING…':changed?'AUTO-SAVE PENDING':'ALL CHANGES SAVED'}</span></div></div><div className="workspace-actions"><label className="outline-btn" style={{cursor:'pointer'}} title="Import existing HTML/CSS/JavaScript website ZIP"><FolderOpen size={15}/> Import ZIP<input type="file" accept=".zip,application/zip" hidden onChange={e=>{void importExistingZip(e.target.files?.[0]);e.target.value=''}}/></label><button className="outline-btn" onClick={undoLastEdit} disabled={!undoStack.length} title="Restore the previous AI edit (this session)"><RotateCcw size={15}/> Undo AI edit</button><button className="outline-btn" onClick={()=>setHistoryOpen(v=>!v)}><RotateCcw size={15}/> History ({undoStack.length})</button><button className="outline-btn" onClick={()=>setInspectorOpen(v=>!v)}><FolderTree size={15}/> Files</button><button className="outline-btn" onClick={saveProject}><Save size={15}/> Save</button><button className="outline-btn" onClick={openPreview}><ExternalLink size={15}/> Open</button><button className="download-btn" onClick={()=>void openPublish()}><Rocket size={15}/> Publish</button><button className="download-btn" onClick={downloadFiles}><Download size={15}/> Export ZIP</button></div></div>
       <div className="workspace-grid">
         <aside className="assistant-panel">
           <div className="assistant-title"><div className="assistant-icon"><Sparkles size={16}/></div><div><strong>VELQOZA assistant</strong><small>AI DESIGN PARTNER</small></div><span className="online-dot"/></div>
@@ -771,41 +805,36 @@ export default function App() {
     </div></div>}
     {publishOpen && code && <div className="modal-backdrop" onClick={()=>setPublishOpen(false)}>
       <div className="projects-modal" role="dialog" aria-modal="true" aria-label="Publish website" onClick={e=>e.stopPropagation()}>
-        <div className="modal-head"><div><span className="section-kicker">PUBLISH WEBSITE</span><h2>Publish {code.title}</h2></div><button className="icon-btn" onClick={()=>setPublishOpen(false)} aria-label="Close publishing"><X/></button></div>
-        <p style={{lineHeight:1.7}}>Your site is currently a private preview. To put it online, export the static website and upload it to a hosting provider. A public URL is created by the provider, not by VELQOZA AI.</p>
+        <div className="modal-head"><div><span className="section-kicker">DIRECT PUBLISH</span><h2>Publish {code.title}</h2></div><button className="icon-btn" onClick={()=>setPublishOpen(false)} aria-label="Close publishing"><X/></button></div>
+        <p style={{lineHeight:1.7}}>Publish directly from VELQOZA AI. Your website gets a public link hosted on this staging service. No ZIP or external hosting steps.</p>
+        {publishedUrl && <div style={{padding:14,background:'rgba(40,180,120,.09)',borderRadius:12,margin:'12px 0',overflowWrap:'anywhere'}}>
+          <strong>Live public website</strong>
+          <div style={{marginTop:8}}><a href={publishedUrl} target="_blank" rel="noopener noreferrer">{window.location.origin+publishedUrl}</a></div>
+          <button className="outline-btn" style={{marginTop:10}} onClick={()=>{void navigator.clipboard.writeText(window.location.origin+publishedUrl);flash('Public URL copied.')}}><Copy size={14}/> Copy public link</button>
+        </div>}
         <fieldset style={{border:'1px solid rgba(255,255,255,.14)',borderRadius:12,padding:14,margin:'16px 0'}}>
-          <legend style={{padding:'0 6px',fontWeight:700}}>Choose your website domain</legend>
+          <legend style={{padding:'0 6px',fontWeight:700}}>Domain options</legend>
           <div style={{display:'grid',gap:10}}>
-            <label style={{display:'flex',gap:9,alignItems:'center',cursor:'pointer'}}><input type="radio" name="publish-domain" checked={publishDomainMode==='temporary'} onChange={()=>setPublishDomainMode('temporary')}/> Use a free hosting subdomain</label>
-            <label style={{display:'flex',gap:9,alignItems:'center',cursor:'pointer'}}><input type="radio" name="publish-domain" checked={publishDomainMode==='existing'} onChange={()=>setPublishDomainMode('existing')}/> I already own a domain</label>
-            <label style={{display:'flex',gap:9,alignItems:'center',cursor:'pointer'}}><input type="radio" name="publish-domain" checked={publishDomainMode==='buy'} onChange={()=>setPublishDomainMode('buy')}/> I want to buy a new domain</label>
+            <label style={{display:'flex',gap:9,alignItems:'center',cursor:'pointer'}}><input type="radio" name="publish-domain" checked={publishDomainMode==='temporary'} onChange={()=>setPublishDomainMode('temporary')}/> Free VELQOZA staging link (available now)</label>
+            <label style={{display:'flex',gap:9,alignItems:'center',cursor:'pointer'}}><input type="radio" name="publish-domain" checked={publishDomainMode==='existing'} onChange={()=>setPublishDomainMode('existing')}/> I already own a domain (coming later)</label>
+            <label style={{display:'flex',gap:9,alignItems:'center',cursor:'pointer'}}><input type="radio" name="publish-domain" checked={publishDomainMode==='buy'} onChange={()=>setPublishDomainMode('buy')}/> Buy a new domain (coming later)</label>
           </div>
-          {publishDomainMode==='existing' && <div style={{marginTop:14}}>
-            <label style={{display:'grid',gap:6}}>Your domain name
-              <input type="text" value={publishDomain} onChange={e=>setPublishDomain(e.target.value.trim().toLowerCase())} placeholder="example.com" maxLength={253} autoComplete="off"/>
-            </label>
-            <p style={{fontSize:12,opacity:.82,lineHeight:1.65,marginTop:8}}>After publishing to Netlify, add this domain in your Netlify site's Domain management. Update DNS records at your registrar exactly as Netlify instructs and confirm domain ownership. Entering it here does not connect or verify it.</p>
-            {publishDomain && !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(publishDomain) && <p role="alert" style={{fontSize:12}}>Enter a valid domain such as example.com (without https://).</p>}
-          </div>}
-          {publishDomainMode==='buy' && <div style={{marginTop:12}}>
-            <p style={{fontSize:12,opacity:.85,lineHeight:1.7}}>Domain purchasing is not integrated into VELQOZA AI yet. Check availability and renewal prices at a domain registrar, purchase using your own account, then select “I already own a domain” to connect it after publishing. Do not enter payment information here.</p>
-            <button type="button" className="outline-btn" onClick={()=>window.open('https://www.cloudflare.com/products/registrar/','_blank','noopener,noreferrer')}><ExternalLink size={14}/> Explore domain registration</button>
-          </div>}
-          {publishDomainMode==='temporary' && <p style={{fontSize:12,opacity:.8,lineHeight:1.6,marginTop:10}}>Your hosting provider can issue a free temporary subdomain. Its exact address will be shown after deployment.</p>}
+          {publishDomainMode==='existing' && <div style={{marginTop:12}}><label style={{display:'grid',gap:6}}>Domain for future setup<input type="text" value={publishDomain} onChange={e=>setPublishDomain(e.target.value)} placeholder="example.com"/></label><p style={{fontSize:12,marginTop:8}}>Custom domain DNS and ownership verification aren't integrated yet. Publishing will use the staging link, not this domain.</p></div>}
+          {publishDomainMode==='buy' && <p style={{fontSize:12,marginTop:12}}>Domain search and payments aren't integrated yet. Publishing uses the staging link. No domain purchase is performed.</p>}
         </fieldset>
-        <div style={{padding:'14px',margin:'14px 0',border:'1px solid rgba(255,255,255,.14)',borderRadius:12}}>
-          <strong><ShieldCheck size={16} style={{verticalAlign:'middle',marginRight:6}}/> Before publishing</strong>
-          <p style={{marginTop:8,lineHeight:1.6}}>Review all pages and links. Generated backend code, logins, orders, database access, and payments do NOT run in this static preview or static ZIP hosting. Remove secrets and private information; do not publish a demo as a live service.</p>
+        <div style={{padding:14,margin:'14px 0',border:'1px solid rgba(255,255,255,.14)',borderRadius:12}}>
+          <strong><ShieldCheck size={16} style={{verticalAlign:'middle',marginRight:6}}/> Public website warning</strong>
+          <p style={{marginTop:8,lineHeight:1.6}}>Anyone with the link can view this site. Only static frontend HTML, CSS and JavaScript are hosted. Database, login, orders, payments, and extra backend files are NOT deployed. Remove private data and test everything before sharing. Publishing a demo does not activate its disabled functionality.</p>
         </div>
         <label style={{display:'flex',alignItems:'flex-start',gap:10,cursor:'pointer',lineHeight:1.5}}>
           <input type="checkbox" checked={publishApproved} onChange={e=>setPublishApproved(e.target.checked)} style={{marginTop:4}}/>
-          <span>I understand that publishing makes this website public, and I have reviewed it for private data and incomplete features.</span>
+          <span>I have reviewed the site and agree to make this frontend website public.</span>
         </label>
+        {publishError && <p role="alert" style={{color:'#f5a6a6',marginTop:12}}>{publishError}</p>}
         <div style={{display:'flex',gap:10,flexWrap:'wrap',marginTop:18}}>
-          <button className="download-btn" disabled={!publishApproved} onClick={()=>void downloadFiles()}><Download size={15}/> 1. Download site ZIP</button>
-          <button className="outline-btn" disabled={!publishApproved} onClick={()=>window.open('https://app.netlify.com/drop','_blank','noopener,noreferrer')}><ExternalLink size={15}/> 2. Open Netlify Drop</button>
+          <button className="download-btn" disabled={!publishApproved||publishing} onClick={()=>void publishNow()}>{publishing?<LoaderCircle className="spin" size={15}/>:<Rocket size={15}/>} {publishing?'Publishing...':publishedUrl?'Update published website':'Publish now'}</button>
+          {publishedUrl && <button className="outline-btn" disabled={publishing} onClick={()=>void unpublishNow()}><X size={15}/> Unpublish</button>}
         </div>
-        <p style={{marginTop:12,fontSize:12,opacity:.8,lineHeight:1.6}}>Next: drag your downloaded ZIP (or its extracted folder, if required) into Netlify Drop and follow the provider's instructions. VELQOZA does not automatically deploy or configure a domain yet.</p>
       </div>
     </div>}
     {showProjects && <div className="modal-backdrop" onClick={()=>setShowProjects(false)}><div className="projects-modal" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><span className="section-kicker">YOUR WORKSPACE</span><h2>My projects</h2></div><button className="icon-btn" onClick={()=>setShowProjects(false)}><X/></button></div>{projects.length===0?<div className="empty-projects"><FolderOpen size={28}/><strong>No saved projects yet</strong><p>Generate a website and save it to see it here.</p></div>:<div className="project-list">{projects.map(p=><div className="project-row" key={p.id}><button className="project-open" onClick={()=>openProject(p)}><span className="project-thumb"><Globe2/></span><span><strong>{p.name}</strong><small>Updated {new Date(p.updatedAt).toLocaleDateString()}</small></span></button><div className="project-row-actions">{renameId===p.id?<><input value={renameValue} onChange={e=>setRenameValue(e.target.value)} onKeyDown={e=>e.key==='Enter'&&renameProject(p.id)}/><button onClick={()=>renameProject(p.id)}><Check size={15}/></button></>:<button title="Rename" onClick={()=>{setRenameId(p.id);setRenameValue(p.name)}}><Pencil size={15}/></button>}<button title="Delete" onClick={()=>deleteProject(p.id)}><Trash2 size={15}/></button></div></div>)}</div>}<button className="new-project-btn" onClick={()=>{if(changed && !window.confirm('Unsaved changes. Create new website?'))return;setShowProjects(false);setTab('builder');setCode(null);setPrompt('')}}><Plus size={16}/> Create a new website</button></div></div>}
