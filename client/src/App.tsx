@@ -40,6 +40,21 @@ function buildDocument(code: SiteCode, filename = 'index.html', exported = false
 function escapeHtml(value: string) { return value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c)) }
 function escapeAttr(value: string) { return escapeHtml(value) }
 
+type UsageKind='studio'|'edit'|'generate'
+type UsageState=Awaited<ReturnType<typeof api.usage>>
+function UsageItem({item,label,now,compact=false}:{item:UsageState['usage'][UsageKind]|undefined;label:string;now:number;compact?:boolean}) {
+  if(!item)return <span style={{fontSize:12,opacity:.7}}>{label}: loading…</span>
+  const remaining=Math.max(0,item.remaining)
+  const ms=item.nextAvailableAt ? Math.max(0,Date.parse(item.nextAvailableAt)-now) : 0
+  const until=ms ? `${Math.floor(ms/3600000)>0?Math.floor(ms/3600000)+'h ':''}${Math.ceil(ms%3600000/60000)}m` : null
+  if(compact)return <span aria-live="polite" title={item.limit+' requests per two-hour rolling window'} style={{fontSize:12,opacity:.9,whiteSpace:'nowrap'}}>{label}: <strong>{remaining}/{item.limit}</strong>{until ? ' · Next in '+until : ''}</span>
+  return <div style={{display:'grid',gap:6,padding:'8px 0'}}>
+    <div style={{display:'flex',justifyContent:'space-between',gap:10}}><strong>{label}</strong><span>{remaining} / {item.limit} left</span></div>
+    <div style={{height:7,background:'rgba(150,150,170,.25)',borderRadius:99,overflow:'hidden'}}><div style={{height:'100%',width:((remaining/item.limit)*100||0)+'%',background:'#ad8cff',borderRadius:99}}/></div>
+    {until && <small style={{opacity:.76}}>Next request available in {until}</small>}
+  </div>
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null)
   const [accountOpen,setAccountOpen]=useState(false)
@@ -52,6 +67,9 @@ export default function App() {
 
   const [projects, setProjects] = useState<Project[]>([])
   const [walletBalance, setWalletBalance] = useState<number|null>(null)
+  const [usageInfo,setUsageInfo] = useState<UsageState|null>(null)
+  const [usageNow,setUsageNow] = useState(Date.now())
+  const [usageError,setUsageError] = useState('')
   const [walletOpen, setWalletOpen] = useState(false)
   const [voucherCode,setVoucherCode] = useState('')
   const [voucherBusy,setVoucherBusy] = useState(false)
@@ -59,6 +77,21 @@ export default function App() {
   const [walletInfo, setWalletInfo] = useState<Awaited<ReturnType<typeof api.credits>>|null>(null)
   const [active, setActive] = useState<Project | null>(null)
   const [code, setCode] = useState<SiteCode | null>(null)
+  const refreshUsage=async()=>{
+    const token=api.token()
+    if(!token)return
+    try {
+      const data=await api.usage()
+      if(api.token()!==token)return
+      setUsageInfo(data);setUsageError('');setUsageNow(Date.now())
+    } catch(error) {if(api.token()===token)setUsageError(error instanceof Error?error.message:'Usage unavailable')}
+  }
+  useEffect(()=>{
+    if(!user){setUsageInfo(null);setUsageError('');return}
+    void refreshUsage()
+    const interval=window.setInterval(()=>{setUsageNow(Date.now());void refreshUsage()},30000)
+    return ()=>window.clearInterval(interval)
+  },[user?.id])
   // Always read the authoritative balance from the API. Never debit credits in the browser.
   const refreshWallet = async () => {
     const sessionToken = api.token()
@@ -382,7 +415,7 @@ export default function App() {
       setStudioSendError((e as Error).message)
       setStudioMessages(m=>m.filter(x=>!x.id.startsWith('pending-')))
       setStudioInput(current => current || message)
-    } finally {setStudioBusy(false);void refreshWallet();requestAnimationFrame(() => studioInputRef.current?.focus())}
+    } finally {setStudioBusy(false);void refreshWallet();void refreshUsage();requestAnimationFrame(() => studioInputRef.current?.focus())}
   }
   const refreshProjects = async () => {
     if (!user) return
@@ -401,7 +434,7 @@ export default function App() {
       setCode(result.code); setLastEditFiles([]); setUndoStack([]); setPreviewPage('index.html'); setInspectorFile('index.html'); setActive(null); setProjectName(result.code.title || 'New website')
       flash('Your website has been generated.')
     } catch (e) { flash((e as Error).message) }
-    finally { setBusy(false); void refreshWallet() }
+    finally { setBusy(false); void refreshWallet(); void refreshUsage() }
   }
   async function editSite() {
     if (!chat.trim() || !code) return
@@ -812,7 +845,7 @@ export default function App() {
         <div className="studio-conversation">
           {studioMessages.length === 0 ? <div className="studio-welcome"><div className="studio-orb"><Sparkles size={34}/></div><span className="studio-overline">CREATIVE INTELLIGENCE</span><h1>What will we <span>create today?</span></h1><p>Ask anything, plan a project, debug your code, or brainstorm your next big idea. Your conversations stay organized in your account.</p><div className="studio-prompt-grid">{[['Plan a website','Help me plan a premium barbershop website.'],['Debug my code','Help me troubleshoot a JavaScript error.'],['Improve my design','What makes a website feel premium and cinematic?'],['Launch checklist','Give me a practical checklist for launching a small business website.']].map(([title,content])=><button key={title} onClick={()=>setStudioInput(content)}><Sparkles size={15}/><strong>{title}</strong><span>{content}</span><ArrowUpRight size={15}/></button>)}</div></div> : <div className="studio-messages">{studioMessages.map((m,i)=><article className={`studio-bubble-row ${m.role}`} key={m.id||i}><div className="studio-bubble-avatar">{m.role==='user'?(user?.email.charAt(0).toUpperCase()||'U'):<Sparkles size={17}/>}</div><div className="studio-bubble"><div className="studio-bubble-name">{m.role==='user'?'YOU':'VELQOZA AI'}</div><div className="studio-bubble-text"><StudioContent content={m.content} onCopy={()=>flash("Code copied.")}/></div>{m.role==='assistant'&&<div className="studio-message-actions"><button className="studio-copy" onClick={()=>{navigator.clipboard.writeText(m.content);flash('Copied to clipboard.')}}><Copy size={13}/> Copy</button><button className="studio-build-btn" onClick={()=>prepareBuildFromChat(m.content)} title="Use this response as your next website prompt"><WandSparkles size={14}/> Build this project <ArrowUpRight size={13}/></button></div>}</div></article>)}{studioBusy&&<div className="studio-thinking"><span/><span/><span/> Thinking through your request...</div>}<div ref={studioBottomRef}/></div>}
         </div>
-        <div className="studio-compose-wrap">{studioSendError && <div className="studio-send-error" role="alert">{studioSendError}<button onClick={()=>setStudioSendError('')}>Dismiss</button></div>}<div className="studio-compose"><textarea ref={studioInputRef} value={studioInput} rows={3} onChange={e=>setStudioInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();if(!studioBusy)sendStudio()}}} placeholder={studioBusy?"You can type your next message while AI responds...":"Message VELQOZA AI..."} aria-label="Chat message" /><div className="studio-compose-bottom"><div><span><Sparkles size={13}/> AI Studio</span>{enabledPlugins.length>0&&<span><Plug size={13}/> {enabledPlugins.length} tools enabled</span>}{studioAttachProject&&code&&<span><Layers3 size={13}/> {code.title}</span>}</div><button onClick={sendStudio} disabled={studioBusy||!studioInput.trim()} aria-label="Send message">{studioBusy?<LoaderCircle className="spin" size={17}/>:<Send size={17}/>}</button></div></div><p className="studio-disclaimer">AI can make mistakes. Chat replies do not automatically change your website or execute code.</p></div>
+        <div className="studio-compose-wrap">{studioSendError && <div className="studio-send-error" role="alert">{studioSendError}<button onClick={()=>setStudioSendError('')}>Dismiss</button></div>}<div className="studio-compose"><textarea ref={studioInputRef} value={studioInput} rows={3} onChange={e=>setStudioInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();if(!studioBusy)sendStudio()}}} placeholder={studioBusy?"You can type your next message while AI responds...":"Message VELQOZA AI..."} aria-label="Chat message" /><div className="studio-compose-bottom"><div><span><Sparkles size={13}/> AI Studio</span><UsageItem compact item={usageInfo?.usage.studio} label="Messages left" now={usageNow}/>{enabledPlugins.length>0&&<span><Plug size={13}/> {enabledPlugins.length} tools enabled</span>}{studioAttachProject&&code&&<span><Layers3 size={13}/> {code.title}</span>}</div><button onClick={sendStudio} disabled={studioBusy||!studioInput.trim()} aria-label="Send message">{studioBusy?<LoaderCircle className="spin" size={17}/>:<Send size={17}/>}</button></div></div><p className="studio-disclaimer">AI can make mistakes. Chat replies do not automatically change your website or execute code.</p></div>
       </div>
     </main> : tab === 'builder' || !code ? <main>
       <section className="hero">
@@ -831,6 +864,7 @@ export default function App() {
           <p style={{fontSize:12,opacity:.74,padding:'0 15px 6px'}}>Drag & drop media here or click Attach media. Files up to 3 MB; they upload to your account and their URL is added to this prompt.</p>
           {mediaError && <p role="alert" style={{fontSize:12,color:'#f4a7a7',padding:'0 15px 8px'}}>{mediaError}</p>}
           {draftAvailable && <div className="prompt-draft-label"><RotateCcw size={13}/> Your last unfinished prompt was restored <button onClick={()=>{setPrompt('');setDraftAvailable(false)}}>Clear</button></div>}
+          <div style={{padding:'8px 14px',display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}><UsageItem compact item={usageInfo?.usage.generate} label="Generations left" now={usageNow}/></div>
           <div className="prompt-controls">
             <div className="selects">
               <label><LayoutTemplate size={14}/><select value={category} onChange={e=>setCategory(e.target.value)}>{['Business','Portfolio','E-commerce','Restaurant','Blog','Agency','Landing Page','SaaS','Other'].map(x=><option key={x}>{x}</option>)}</select><ChevronDown size={13}/></label>
@@ -906,7 +940,7 @@ export default function App() {
             <div><span>{mediaBusy?'Uploading attachment…':'↵ Enter to send · drag media here'}</span><label title="Attach image, audio or video" style={{display:'inline-flex',alignItems:'center',cursor:mediaBusy?'wait':'pointer',padding:'6px 9px',borderRadius:8}}><Plus size={16}/><input type="file" hidden disabled={mediaBusy} accept="image/png,image/jpeg,image/webp,image/gif,audio/mpeg,audio/wav,audio/ogg,video/mp4,video/webm" onChange={e=>{void uploadMediaFile(e.target.files?.[0],'edit');e.target.value=''}}/></label><button onClick={editSite} disabled={busy||mediaBusy||!chat.trim()}><Send size={15}/></button></div>
             {mediaError && <p role="alert" style={{fontSize:12,color:'#f4a7a7',padding:'0 9px 8px'}}>{mediaError}</p>}
           </div>
-          <div className="assistant-foot"><ShieldCheck size={13}/> Your changes are generated securely through the server.</div>
+          <div className="assistant-foot" style={{display:'flex',gap:8,flexWrap:'wrap'}}><ShieldCheck size={13}/> Your changes are generated securely through the server. <UsageItem compact item={usageInfo?.usage.edit} label="Edits left" now={usageNow}/></div>
         </aside>
         <section className="preview-panel">
           <div className="preview-toolbar"><div className="preview-status"><span className="live-dot"/> LIVE PREVIEW <span className="preview-divider"/> <span>{code.title}</span></div><div className="device-switch">{([['desktop',Monitor],['tablet',Tablet],['mobile',Smartphone]] as const).map(([m,Icon])=><button key={m} className={mode===m?'selected':''} onClick={()=>setMode(m)} title={`${m} preview`}><Icon size={16}/></button>)}</div><button className="icon-btn" title="Open in new tab" onClick={openPreview}><ArrowUpRight size={17}/></button></div>
@@ -923,6 +957,14 @@ export default function App() {
     {notice && <div className="toast"><Check size={16}/>{notice}</div>}
     {accountOpen && user && <div className="modal-backdrop" onClick={()=>setAccountOpen(false)}><section className="account-control-panel" onClick={e=>e.stopPropagation()} aria-label="Account Control"><div className="modal-head"><div><span className="section-kicker">VELQOZA IDENTITY</span><h2>Account Control</h2><p>Manage your profile, sessions and saved accounts securely.</p></div><button className="icon-btn" onClick={()=>setAccountOpen(false)}><X/></button></div>
       <div className="account-summary"><div className="account-symbol">{(user.displayName||user.email).slice(0,1).toUpperCase()}</div><div><strong>{user.displayName||'Your VELQOZA account'}</strong><span>{user.email}</span><small>{user.emailVerified?'✓ Verified email':'Legacy account · email not independently verified'}{user.isAdmin?' · Owner':''}</small></div><span className="account-credits">{walletBalance??'—'} Credits</span></div>
+      <section style={{padding:'16px',margin:'14px 0',background:'rgba(120,90,170,.1)',border:'1px solid rgba(170,145,210,.2)',borderRadius:14}}>
+        <h3 style={{margin:'0 0 10px'}}>Your AI usage · rolling {usageInfo?.windowHours??2}-hour window</h3>
+        {usageError && <p style={{fontSize:12,color:'#ffb0b0'}}>{usageError} <button onClick={()=>void refreshUsage()}>Retry</button></p>}
+        <UsageItem item={usageInfo?.usage.studio} label="AI Studio Messages" now={usageNow}/>
+        <UsageItem item={usageInfo?.usage.edit} label="Website Edits" now={usageNow}/>
+        <UsageItem item={usageInfo?.usage.generate} label="Website Generations" now={usageNow}/>
+        <p style={{fontSize:12,opacity:.77,marginTop:10}}>Limits roll forward after each request's two-hour window. Credits are charged separately.</p>
+      </section>
       <div className="account-control-grid"><section><h3><UsersRound size={16}/> Switch Account</h3><p>Saved accounts on this browser. Each keeps separate projects, chats and credits.</p><div className="account-entries">{savedAccounts.map(a=><div className="account-entry" key={a.id}><span className="account-mini-avatar">{(a.displayName||a.email).slice(0,1).toUpperCase()}</span><div><strong>{a.displayName||a.email}</strong><small>{a.email}</small></div>{a.id===user.id?<span className="account-current">Active</span>:<><button disabled={accountBusy||busy||studioBusy} onClick={()=>void switchAccount(a)}>Switch</button><button title="Remove from this browser (does not delete account)" className="account-remove" onClick={()=>{api.removeSavedAccount(a.id);setSavedAccounts(api.savedAccounts())}}><X size={13}/></button></>}</div>)}</div><button className="account-outline" disabled={accountBusy||busy||studioBusy} onClick={addAccount}><UserPlus size={16}/> Add another account</button><button className="account-muted" onClick={()=>{api.clearSavedAccounts();if(user&&api.token())api.rememberAccount(user,api.token()!);setSavedAccounts(api.savedAccounts());setAccountFeedback('Other saved accounts removed from this browser.')}}>Forget other saved accounts</button></section>
       <section><h3><Settings2 size={16}/> Profile & security</h3><p>Only your account can update these settings.</p><label className="account-field">Display name<input maxLength={60} value={displayNameDraft} onChange={e=>setDisplayNameDraft(e.target.value)} placeholder="Your name" /></label><button className="account-outline" disabled={accountBusy} onClick={()=>void saveAccountName()}>Save name</button><div className="account-divider"/><label className="account-field">Current password<input type="password" autoComplete="current-password" value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)}/></label><label className="account-field">New password<input type="password" autoComplete="new-password" minLength={8} value={nextPassword} onChange={e=>setNextPassword(e.target.value)}/></label><button className="account-outline" disabled={accountBusy} onClick={()=>void updateAccountPassword()}><KeyRound size={15}/> Update password</button><button className="account-muted" disabled={accountBusy} onClick={()=>void signOutOtherDevices()}><RefreshCw size={14}/> Sign out other devices</button><button className="account-muted" onClick={()=>{setAccountOpen(false);void showWallet()}}><Zap size={14}/> View credit history</button></section></div>
       {accountFeedback&&<p className="account-feedback" role="status">{accountFeedback}</p>}
