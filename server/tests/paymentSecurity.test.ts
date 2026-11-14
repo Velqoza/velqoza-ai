@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture, webhookCaptureId } from '../src/payments.js'
+import { paypalMode, priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture, webhookCaptureId } from '../src/payments.js'
 
 test('stored package grants are immutable and amount-bound',()=>{
   const selection={type:'package' as const,packageId:'starter' as const}
@@ -43,4 +43,20 @@ test('refund and dispute webhooks identify original capture for review',()=>{
   assert.equal(webhookCaptureId({id:'EVT12345680',event_type:'CUSTOMER.DISPUTE.CREATED',resource:{disputed_transactions:[{seller_transaction_id:'CAP125'}]}}),'CAP125')
   assert.equal(webhookCaptureId({id:'EVT12345681',event_type:'CUSTOMER.DISPUTE.CREATED',resource:{disputed_transactions:[{seller_transaction_id:'CAP125'},{seller_transaction_id:'CAP126'}]}}),null)
   assert.equal(webhookCaptureId({id:'EVT12345682',event_type:'PAYMENT.CAPTURE.COMPLETED',resource:{id:'CAP127'}}),null)
+})
+
+test('PayPal Live is blocked on staging, even with approval flags',()=>{
+  const keys=['PAYPAL_ENV','PAYPAL_CLIENT_ID','PAYPAL_CLIENT_SECRET','PAYPAL_WEBHOOK_ID','ENABLE_LIVE_PAYMENTS','LIVE_PAYMENTS_APPROVED','NODE_ENV','STAGING_INIT_SCHEMA','RENDER_SERVICE_ID'] as const
+  const original=Object.fromEntries(keys.map(k=>[k,process.env[k]]))
+  try{
+    Object.assign(process.env,{PAYPAL_ENV:'live',PAYPAL_CLIENT_ID:'test-id',PAYPAL_CLIENT_SECRET:'test-secret',PAYPAL_WEBHOOK_ID:'webhook-id1234',ENABLE_LIVE_PAYMENTS:'true',LIVE_PAYMENTS_APPROVED:'true',NODE_ENV:'production',STAGING_INIT_SCHEMA:'true',RENDER_SERVICE_ID:'srv-dbs3comi0phs73c0s1dg'})
+    assert.equal(paypalMode(),null)
+    delete process.env.STAGING_INIT_SCHEMA
+    assert.equal(paypalMode(),null)
+    process.env.RENDER_SERVICE_ID='production-test-service'
+    delete process.env.LIVE_PAYMENTS_APPROVED
+    assert.equal(paypalMode(),null)
+    process.env.LIVE_PAYMENTS_APPROVED='true'
+    assert.equal(paypalMode(),'live')
+  }finally{for(const k of keys){if(original[k]===undefined)delete process.env[k];else process.env[k]=original[k]}}
 })
