@@ -525,7 +525,7 @@ app.get('/api/admin/overview', requireAuth,requireAdmin,(req:AuthRequest,res)=>{
 app.get('/api/admin/payments/readiness',requireAuth,requireAdmin,(_req,res)=>{
   const checks=[
     {label:'Production service',ok:process.env.NODE_ENV==='production'&&process.env.RENDER_SERVICE_ID!=='srv-dbs3comi0phs73c0s1dg'&&process.env.STAGING_INIT_SCHEMA!=='true'},
-    {label:'Persistent database configured',ok:Boolean(process.env.DATABASE_URL?.trim())},
+    {label:'Dedicated Supabase production database',ok:process.env.VELQOZA_PRIMARY_DB==='supabase'&&process.env.VELQOZA_DB_SCHEMA==='velqoza_ai_production'&&Boolean(process.env.SUPABASE_DATABASE_URL?.trim()&&process.env.SUPABASE_CA_CERT?.includes('BEGIN CERTIFICATE'))},
     {label:'HTTPS return URL configured',ok:Boolean(process.env.CLIENT_ORIGIN?.split(',').some(x=>x.trim().startsWith('https://')))},
     {label:'PayPal Live selected',ok:process.env.PAYPAL_ENV==='live'},
     {label:'PayPal merchant credentials present',ok:Boolean(process.env.PAYPAL_CLIENT_ID?.trim()&&process.env.PAYPAL_CLIENT_SECRET?.trim())},
