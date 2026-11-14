@@ -26,11 +26,17 @@ function databaseScore(filename: string): number {
     return -1
   }
 }
-// Staging-only cutover to the already configured Supabase secret. Fail closed.
+// Supabase connection is an existing backend-only Render secret. The explicit
+// schema guard keeps testing and customer data logically separated.
 const useSupabasePrimary = process.env.VELQOZA_PRIMARY_DB === 'supabase'
 if(useSupabasePrimary){
-  if(process.env.RENDER_SERVICE_ID!=='srv-dbs3comi0phs73c0s1dg'||process.env.STAGING_INIT_SCHEMA!=='true')
-    throw new Error('Supabase cutover must be tested on the isolated staging service.')
+  const configuredSchema=process.env.VELQOZA_DB_SCHEMA || 'velqoza_ai'
+  const isStaging=process.env.RENDER_SERVICE_ID==='srv-dbs3comi0phs73c0s1dg' && process.env.STAGING_INIT_SCHEMA==='true'
+  const isProduction=process.env.NODE_ENV==='production' && process.env.STAGING_INIT_SCHEMA!=='true' &&
+    process.env.RENDER_SERVICE_ID!== 'srv-dbs3comi0phs73c0s1dg'
+  if((!isStaging && !isProduction) || (isStaging && configuredSchema!=='velqoza_ai') ||
+      (isProduction && configuredSchema!=='velqoza_ai_production'))
+    throw new Error('Invalid Supabase schema or deployment role; refusing to connect to a different environment.')
   const raw=process.env.SUPABASE_DATABASE_URL?.trim()
   if(!raw)throw new Error('SUPABASE_DATABASE_URL is missing; no fallback to Render.')
   const url=new URL(raw)
