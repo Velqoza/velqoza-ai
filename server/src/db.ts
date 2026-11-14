@@ -145,4 +145,14 @@ CREATE TABLE IF NOT EXISTS published_sites (
 CREATE INDEX IF NOT EXISTS published_sites_user ON published_sites(user_id);
 `)
 
+// Friendly names are separate to preserve existing publication IDs and legacy links.
+db.exec(`
+CREATE TABLE IF NOT EXISTS published_site_names (
+ site_name TEXT PRIMARY KEY,
+ publication_id TEXT NOT NULL UNIQUE REFERENCES published_sites(id) ON DELETE CASCADE,
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ created_at TEXT NOT NULL
+);
+`)
+
 }
