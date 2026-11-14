@@ -518,7 +518,7 @@ const servePublishedBySlug=(req:express.Request,res:express.Response,slug:string
   req.params.slug=slug
   req.params.filename=filename
   if (!publishSlug.safeParse(req.params.slug).success) return res.status(404).send('Site not found.')
-  const filename=req.params.filename.toLowerCase()
+  filename=filename.toLowerCase()
   if (!/^[a-z0-9][a-z0-9_.-]{0,80}$/.test(filename)) return res.status(404).send('File not found.')
   const row=db.prepare('SELECT code_json FROM published_sites WHERE slug=?').get(req.params.slug) as {code_json:string}|undefined
   if(!row) return res.status(404).send('Site is unpublished or not found.')
