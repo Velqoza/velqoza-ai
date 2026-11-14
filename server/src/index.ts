@@ -227,8 +227,7 @@ app.post('/api/packages/checkout',requireAuth,rateLimit({windowMs:60*60_000,limi
   if(!paypalReady())return res.status(503).json({error:'PayPal Sandbox is not configured for this staging environment.'})
   const parsed=checkoutRequestBody.safeParse(req.body)
   if(!parsed.success)return res.status(400).json({error:'Invalid package request.'})
-  const record=db.prepare('SELECT id,user_id,selection_json,status FROM package_requests WHERE id=? AND user_id=?').get(parsed.data.requestId,req.userId)
-    as {id:string;user_id:string;selection_json:string;status:string}|undefined
+  const record=db.prepare('SELECT id,user_id,selection_json,status FROM package_requests WHERE id=? AND user_id=?').get(parsed.data.requestId,req.userId) as {id:string;user_id:string;selection_json:string;status:string}|undefined
   if(!record || record.status!=='pending')return res.status(404).json({error:'An unfulfilled package request is required.'})
   const selection=JSON.parse(record.selection_json) as PaidSelection
   const pricing=priceSelection(selection)
