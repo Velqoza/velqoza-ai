@@ -81,4 +81,11 @@ CREATE TABLE IF NOT EXISTS velqoza_ai.published_sites (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS published_sites_user ON velqoza_ai.published_sites(user_id);
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.published_site_names (
+ site_name TEXT PRIMARY KEY,
+ publication_id TEXT NOT NULL UNIQUE REFERENCES velqoza_ai.published_sites(id) ON DELETE CASCADE,
+ user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+ created_at TEXT NOT NULL
+);
 `;
