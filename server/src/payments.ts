@@ -158,6 +158,11 @@ export async function createCheckout(paymentId:string,cents:number,description:s
     throw new Error('Unexpected payment approval destination.')
   return {orderId:result.id,approvalUrl:href}
 }
+// Recovery is read-only at PayPal: never issue a second capture or charge.
+export async function retrieveCompletedCheckout(orderId:string):Promise<PayPalOrder>{
+  if(!/^[A-Z0-9]{8,32}$/i.test(orderId))throw new Error('Invalid payment order id.')
+  return paypalRequest('GET','/v2/checkout/orders/'+encodeURIComponent(orderId))
+}
 export async function captureCheckout(orderId:string,paymentId:string):Promise<PayPalOrder>{
   if(!/^[A-Z0-9]{8,32}$/i.test(orderId))throw new Error('Invalid payment order id.')
   try {
