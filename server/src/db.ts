@@ -26,17 +26,31 @@ function databaseScore(filename: string): number {
     return -1
   }
 }
+// Staging-only cutover to the already configured Supabase secret. Fail closed.
+const useSupabasePrimary = process.env.VELQOZA_PRIMARY_DB === 'supabase'
+if(useSupabasePrimary){
+  if(process.env.RENDER_SERVICE_ID!=='srv-dbs3comi0phs73c0s1dg'||process.env.STAGING_INIT_SCHEMA!=='true')
+    throw new Error('Supabase cutover must be tested on the isolated staging service.')
+  const raw=process.env.SUPABASE_DATABASE_URL?.trim()
+  if(!raw)throw new Error('SUPABASE_DATABASE_URL is missing; no fallback to Render.')
+  const url=new URL(raw)
+  if(!['postgres:','postgresql:'].includes(url.protocol)||!url.hostname.endsWith('.pooler.supabase.com')||url.port!=='5432')
+    throw new Error('Supabase primary requires the Session pooler on port 5432.')
+  if(!process.env.SUPABASE_CA_CERT?.includes('BEGIN CERTIFICATE'))
+    throw new Error('Verified Supabase TLS CA missing.')
+}
+const activeDatabaseUrl = useSupabasePrimary ? process.env.SUPABASE_DATABASE_URL!.trim() : process.env.DATABASE_URL?.trim()
 const configuredPath = process.env.DATABASE_PATH?.trim()
 const hasCustomPath = !!configuredPath && configuredPath !== './data/velqoza.sqlite' && configuredPath !== 'data/velqoza.sqlite'
 const dbPath = hasCustomPath
   ? path.resolve(projectRoot, configuredPath!)
   : (databaseScore(legacyServer) > databaseScore(legacyRoot) ? legacyServer : legacyRoot)
-if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL && !hasCustomPath) throw new Error('Set an explicit, persistent DATABASE_PATH for production.')
-if (!process.env.DATABASE_URL) fs.mkdirSync(path.dirname(dbPath), { recursive: true })
+if (process.env.NODE_ENV === 'production' && !activeDatabaseUrl && !hasCustomPath) throw new Error('Set an explicit, persistent DATABASE_PATH for production.')
+if (!activeDatabaseUrl) fs.mkdirSync(path.dirname(dbPath), { recursive: true })
 console.log(`[VELQOZA] Project database: ${dbPath}`)
-export const db = (process.env.DATABASE_URL ? new PostgresDatabase(process.env.DATABASE_URL) : new Database(dbPath)) as Database.Database
-if (process.env.DATABASE_URL) {
-  console.log('[VELQOZA] Persistent PostgreSQL enabled (private velqoza_ai schema).')
+export const db = (activeDatabaseUrl ? new PostgresDatabase(activeDatabaseUrl) : new Database(dbPath)) as Database.Database
+if (activeDatabaseUrl) {
+  console.log(useSupabasePrimary?'[VELQOZA] Supabase PostgreSQL PRIMARY enabled (private velqoza_ai schema).':'[VELQOZA] Persistent PostgreSQL enabled (private velqoza_ai schema).')
 } else {
 db.pragma('journal_mode = WAL')
 db.pragma('foreign_keys = ON')
