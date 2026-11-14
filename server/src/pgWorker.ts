@@ -45,7 +45,7 @@ function rewrite(sql: string): string {
 async function run(op: string, sql?: string, args?: unknown[]) {
   if (!connected) {
     await client.connect()
-    if (process.env.STAGING_INIT_SCHEMA === 'true') {
+    if (process.env.STAGING_INIT_SCHEMA === 'true' && process.env.VELQOZA_PRIMARY_DB !== 'supabase') {
       await client.query(stagingSchemaSql)
       console.log('[VELQOZA] Isolated staging PostgreSQL schema checked.')
     }
