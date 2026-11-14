@@ -147,6 +147,8 @@ export default function App() {
   const [mediaOpen,setMediaOpen]=useState(false)
   const [mediaAssets,setMediaAssets]=useState<{id:string;name:string;mime:string;size:number;url:string;createdAt:string}[]>([])
   const [mediaBusy,setMediaBusy]=useState(false)
+  const [chatDragActive,setChatDragActive]=useState(false)
+  const chatDragDepth=useRef(0)
   const [mediaError,setMediaError]=useState('')
   const [publishOpen, setPublishOpen] = useState(false)
   const [publishApproved, setPublishApproved] = useState(false)
@@ -620,7 +622,7 @@ export default function App() {
     try {const result=await api.mediaAssets();setMediaAssets(result.assets)}
     catch(error){setMediaError(error instanceof Error?error.message:'Could not load media.')}
   }
-  async function uploadMediaFile(file:File|undefined) {
+  async function uploadMediaFile(file:File|undefined, insertIntoChat=false) {
     if(!file)return
     const allowed=new Set(['image/png','image/jpeg','image/webp','image/gif','audio/mpeg','audio/wav','audio/ogg','video/mp4','video/webm'])
     if(!allowed.has(file.type)||file.size>3*1024*1024||!file.size){
@@ -638,7 +640,11 @@ export default function App() {
       if(!dataBase64) throw new Error('The file was empty.')
       const {asset}=await api.uploadMedia({filename:file.name,mime:file.type,dataBase64})
       setMediaAssets(items=>[asset,...items])
-      flash('Media uploaded. Use its URL inside your website.')
+      if(insertIntoChat) {
+        const snippet='Use the uploaded '+asset.mime+' file at '+window.location.origin+asset.url+' in this website. Preserve the other pages and functionality.'
+        setChat(previous=>(previous.trim()?previous.trim()+'\n':'')+snippet)
+      }
+      flash(insertIntoChat?'Media attached to your AI request.':'Media uploaded. Use its URL inside your website.')
     }catch(error){setMediaError(error instanceof Error?error.message:'Upload failed.')}
     finally {setMediaBusy(false)}
   }
@@ -841,7 +847,16 @@ export default function App() {
             {busy && <div className="typing"><span/><span/><span/> Updating your website...</div>}
           </div>
           {lastEditFiles.length>0 && <div style={{fontSize:12,padding:'10px 14px',borderTop:'1px solid rgba(255,255,255,.1)'}}>Changed: {lastEditFiles.join(', ')} <button onClick={()=>{setInspectorOpen(true);setInspectorFile(lastEditFiles[0]);setSourceEditing(false)}}>Review files</button></div>}
-          <div className="chat-composer"><textarea ref={editorInputRef} value={chat} onChange={e=>setChat(e.target.value)} placeholder="Tell me what you'd like to change..." rows={3} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();if(!busy)editSite()}}}/><div><span>↵ Enter to send · full-stack files export in ZIP</span><button onClick={editSite} disabled={busy||!chat.trim()}><Send size={15}/></button></div></div>
+          <div className="chat-composer" style={{position:'relative',border:chatDragActive?'2px dashed #b59bff':undefined,background:chatDragActive?'rgba(130,90,205,.18)':undefined}}
+            onDragEnter={e=>{if(!e.dataTransfer.types.includes('Files'))return;e.preventDefault();chatDragDepth.current++;setChatDragActive(true)}}
+            onDragOver={e=>{if(!e.dataTransfer.types.includes('Files'))return;e.preventDefault();e.dataTransfer.dropEffect='copy'}}
+            onDragLeave={e=>{e.preventDefault();chatDragDepth.current=Math.max(0,chatDragDepth.current-1);if(chatDragDepth.current===0)setChatDragActive(false)}}
+            onDrop={e=>{e.preventDefault();e.stopPropagation();chatDragDepth.current=0;setChatDragActive(false);if(mediaBusy)return;const file=e.dataTransfer.files?.[0];if(file)void uploadMediaFile(file,true)}}>
+            {chatDragActive && <div aria-hidden="true" style={{position:'absolute',inset:0,zIndex:3,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:12,background:'rgba(18,12,35,.93)',color:'#f7f3ff',fontWeight:700,pointerEvents:'none'}}>Drop image, audio or video here</div>}
+            <textarea ref={editorInputRef} value={chat} onChange={e=>setChat(e.target.value)} placeholder="Tell me what you'd like to change, or drop media here..." rows={3} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();if(!busy&&!mediaBusy)editSite()}}}/>
+            <div><span>{mediaBusy?'Uploading attachment…':'↵ Enter to send · drag media here'}</span><label title="Attach image, audio or video" style={{display:'inline-flex',alignItems:'center',cursor:mediaBusy?'wait':'pointer',padding:'6px 9px',borderRadius:8}}><Plus size={16}/><input type="file" hidden disabled={mediaBusy} accept="image/png,image/jpeg,image/webp,image/gif,audio/mpeg,audio/wav,audio/ogg,video/mp4,video/webm" onChange={e=>{void uploadMediaFile(e.target.files?.[0],true);e.target.value=''}}/></label><button onClick={editSite} disabled={busy||mediaBusy||!chat.trim()}><Send size={15}/></button></div>
+            {mediaError && <p role="alert" style={{fontSize:12,color:'#f4a7a7',padding:'0 9px 8px'}}>{mediaError}</p>}
+          </div>
           <div className="assistant-foot"><ShieldCheck size={13}/> Your changes are generated securely through the server.</div>
         </aside>
         <section className="preview-panel">
