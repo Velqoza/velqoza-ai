@@ -1027,7 +1027,20 @@ function StudioContent({content,onCopy}:{content:string;onCopy:()=>void}) {
   const parts = content.split(/(```[a-zA-Z0-9_+.#-]*\n[\s\S]*?```)/g)
   return <>{parts.map((part,i)=>{
     const match = part.match(/^```([a-zA-Z0-9_+.#-]*)\n([\s\S]*?)```$/)
-    if (!match) return <div className="studio-prose" key={i} dir="auto">{part}</div>
+    if (!match) {
+      // Render cited source links as actual clickable URLs without enabling raw
+      // HTML injection from model output or conversation history.
+      const pieces=part.split(/(\[[^\]]{1,100}\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<]+)/g)
+      return <div className="studio-prose" key={i} dir="auto">{pieces.map((piece,j)=>{
+        const md=piece.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/)
+        const direct=/^https?:\/\/[^\s<]+$/.test(piece)
+        const href=md?.[2]||(direct?piece:'')
+        if(!href)return piece
+        try {const url=new URL(href);if(!['http:','https:'].includes(url.protocol))return piece}
+        catch{return piece}
+        return <a key={j} href={href} rel="noopener noreferrer nofollow" target="_blank" style={{color:'#c5a6ff',textDecoration:'underline',overflowWrap:'anywhere'}}>{md?.[1]||piece}</a>
+      })}</div>
+    }
     return <div className="studio-code-block" key={i}><div className="studio-code-head"><span>{match[1] || 'code'}</span><button onClick={()=>{navigator.clipboard.writeText(match[2]);onCopy()}}><Copy size={12}/> Copy code</button></div><pre><code>{match[2]}</code></pre></div>
   })}</>
 }
