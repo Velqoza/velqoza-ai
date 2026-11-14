@@ -381,14 +381,37 @@ app.delete('/api/studio/memory/:id',requireAuth,(req:AuthRequest,res)=>{
 })
 // Context retrieval is bounded, user-scoped, and never queries other accounts.
 function priorStudioContext(userId:string,currentThreadId:string,query:string):string[]{
-  const candidates=db.prepare(`SELECT m.role,m.content FROM ai_thread_messages m
+  const candidates=db.prepare(`SELECT m.role,m.content,t.title FROM ai_thread_messages m
     JOIN ai_threads t ON t.id=m.thread_id
-    WHERE t.user_id=? AND t.id<>? AND m.role='user'
-    ORDER BY m.created_at DESC LIMIT 100`).all(userId,currentThreadId) as {role:string;content:string}[]
-  const words=new Set(query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w=>w.length>=4))
-  const ranked=candidates.map(c=>({value:c.content,score:[...words].filter(w=>c.content.toLowerCase().includes(w)).length}))
-    .filter(c=>c.score>0).sort((a,b)=>b.score-a.score)
-  return ranked.slice(0,8).map(c=>c.value.slice(0,350))
+    WHERE t.user_id=? AND t.id<>?
+    ORDER BY m.created_at DESC LIMIT 150`).all(userId,currentThreadId) as {role:string;content:string;title:string}[]
+  const stop=new Set(['what','where','about','that','this','ليش','شو','انا','انت','مين','كيف','عندي','هاي','هذا','اللي'])
+  const words=new Set(query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w=>w.length>=3&&!stop.has(w)))
+  const ranked=candidates.map((c,i)=>({value:c.role+': '+c.content,score:[...words].filter(w=>(c.content+' '+c.title).toLowerCase().includes(w)).length,order:i}))
+    .sort((a,b)=>b.score-a.score || a.order-b.order)
+  // Even vague questions ("what did we discuss?", "who am I?") get some
+  // bounded, recent context from this account instead of an empty memory.
+  return ranked.slice(0,12).map(c=>c.value.slice(0,450))
+}
+function rememberStudioFact(userId:string,message:string):void {
+  // Keep only user-stated durable project identity/preferences. No inferred
+  // sensitive traits; a user can inspect and delete all entries.
+  const text=message.trim().slice(0,500)
+  const patterns=[
+    /(?:اسم\s+(?:شركتي|مشروعي|البراند|الموقع)|شركتي\s+اسمها|مشروعي\s+اسمه|my\s+(?:company|brand|business)\s+(?:is|name\s+is))\s*[:：\-]?\s*([^\n.!؟]{2,100})/iu,
+    /(?:بفضّل|افضل|بحب|ما\s+بحب|i\s+prefer|i\s+like|i\s+don't\s+like)\s+([^\n.!؟]{3,100})/iu,
+    /(?:تذكر|احفظ|خليك\s+متذكر|remember\s+that)\s*[:：\-]?\s*(.{3,180})/iu
+  ]
+  const matches=patterns.map(p=>text.match(p)).filter((m):m is RegExpMatchArray=>Boolean(m))
+  for(const match of matches.slice(0,2)){
+    const fact=match[0].trim().slice(0,220)
+    if(fact.length<7 || /(password|passwords|كلمة\s*السر|api.?key|secret|token|بطاقة|credit.card|رقم\s*الهويه|مرض|عنوان\s*بيتي|ديني|سياسي|جنس)/iu.test(fact))continue
+    const exists=db.prepare('SELECT 1 FROM studio_memories WHERE user_id=? AND content=?').get(userId,fact)
+    if(exists)continue
+    const count=(db.prepare('SELECT COUNT(*) AS n FROM studio_memories WHERE user_id=?').get(userId) as {n:number}).n
+    if(count>=50)break
+    db.prepare('INSERT INTO studio_memories(id,user_id,content,created_at) VALUES(?,?,?,?)').run(randomUUID(),userId,fact,now())
+  }
 }
 
 app.get('/api/studio/plugins', requireAuth, (_req,res)=>res.json({plugins:studioPluginCatalog}))
@@ -417,7 +440,7 @@ app.post('/api/studio/threads/:id/messages',requireAuth, singleFlight('studio'),
   if (!threadIdSchema.safeParse(req.params.id).success || !ownsThread(req.params.id,req.userId!)) return res.status(404).json({error:'Conversation not found.'})
   const parsed=studioMessage.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({error:'Message or selected plugins are invalid.'})
-  const {message,pluginIds,projectCode,searchWeb}=parsed.data
+  const {message,pluginIds,projectCode}=parsed.data
   const count=(db.prepare('SELECT COUNT(*) AS n FROM ai_thread_messages WHERE thread_id=?').get(req.params.id) as {n:number}).n
   if (count>=500) return res.status(400).json({error:'Conversation reached its message limit. Start a new conversation.'})
   const reports=runStudioPlugins(pluginIds,projectCode)
@@ -427,7 +450,7 @@ app.post('/api/studio/threads/:id/messages',requireAuth, singleFlight('studio'),
   try {
     const memories=db.prepare('SELECT content FROM studio_memories WHERE user_id=? ORDER BY created_at DESC LIMIT 30').all(req.userId) as {content:string}[]
     const priorConversation=priorStudioContext(req.userId!,req.params.id,message)
-    const reply=await chatWithStudio([...history.reverse(),{role:'user',content:message}],reports,projectCode ? `Title: ${projectCode.title}; description: ${projectCode.description}; pages: ${Object.keys(projectCode.pages||{'index.html':projectCode.html}).join(', ')}; files: ${Object.keys(projectCode.files||{}).join(', ')}`:undefined,{memoryItems:memories.map(m=>m.content),priorConversation,searchWeb})
+    const reply=await chatWithStudio([...history.reverse(),{role:'user',content:message}],reports,projectCode ? `Title: ${projectCode.title}; description: ${projectCode.description}; pages: ${Object.keys(projectCode.pages||{'index.html':projectCode.html}).join(', ')}; files: ${Object.keys(projectCode.files||{}).join(', ')}`:undefined,{memoryItems:memories.map(m=>m.content),priorConversation})
     const stamp=now(), userId=randomUUID(),assistantId=randomUUID()
     db.transaction(()=>{
       db.prepare('INSERT INTO ai_thread_messages(id,thread_id,role,content,created_at) VALUES (?,?,?,?,?)').run(userId,req.params.id,'user',message,stamp)
@@ -436,6 +459,8 @@ app.post('/api/studio/threads/:id/messages',requireAuth, singleFlight('studio'),
       if(title) db.prepare('UPDATE ai_threads SET title=?,updated_at=? WHERE id=?').run(title,stamp,req.params.id)
       else db.prepare('UPDATE ai_threads SET updated_at=? WHERE id=?').run(stamp,req.params.id)
     })()
+    // Memory extraction must never invalidate a successful chat response.
+    try {rememberStudioFact(req.userId!,message)} catch(error){console.warn('Automatic memory extraction skipped',error)}
     res.json({reply,pluginReports:reports})
   } catch(e) {refundCredits(req.userId!,creditRef);console.error('Studio AI failed',e);res.status(502).json({error:publicAiError(e)})}
 })
