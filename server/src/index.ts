@@ -422,6 +422,75 @@ app.delete('/api/projects/:id',requireAuth,(req:AuthRequest,res) => {
   if (!result.changes) return res.status(404).json({ error:'Project not found.' })
   res.json({ok:true})
 })
+
+// Direct publishing: a public snapshot is served by VELQOZA AI itself.
+// Generated code always runs in a CSP-sandboxed opaque origin so it cannot read
+// the VELQOZA app's localStorage/auth tokens, even though it shares a hostname.
+const publishSlug = z.string().regex(/^[a-f0-9]{24}$/)
+const publicationRow = (projectId:string,userId:string) => db.prepare(
+  'SELECT id,slug,created_at,updated_at FROM published_sites WHERE project_id=? AND user_id=?'
+).get(projectId,userId) as {id:string;slug:string;created_at:string;updated_at:string}|undefined
+app.get('/api/published/:projectId',requireAuth,(req:AuthRequest,res)=>{
+  if (!z.string().uuid().safeParse(req.params.projectId).success) return res.status(400).json({error:'Invalid project ID.'})
+  const row=publicationRow(req.params.projectId,req.userId!)
+  res.json({publication:row ? {slug:row.slug,url:`/published/${row.slug}/index.html`,updatedAt:row.updated_at} : null})
+})
+app.post('/api/published/:projectId',requireAuth,(req:AuthRequest,res)=>{
+  if (!z.string().uuid().safeParse(req.params.projectId).success) return res.status(400).json({error:'Invalid project ID.'})
+  const project=db.prepare('SELECT code_json FROM projects WHERE id=? AND user_id=?').get(req.params.projectId,req.userId) as {code_json:string}|undefined
+  if (!project) return res.status(404).json({error:'Save the project first.'})
+  // A saved project is the only valid publish source, never a raw client-supplied page.
+  const code=safeCode.safeParse(JSON.parse(project.code_json))
+  if (!code.success) return res.status(400).json({error:'Project has unsupported content. Review files before publishing.'})
+  const existing=publicationRow(req.params.projectId,req.userId!)
+  const timestamp=now()
+  if(existing) {
+    db.prepare('UPDATE published_sites SET code_json=?,updated_at=? WHERE id=? AND user_id=?')
+      .run(JSON.stringify(code.data),timestamp,existing.id,req.userId)
+    return res.json({ok:true,slug:existing.slug,url:`/published/${existing.slug}/index.html`,updated:true})
+  }
+  const slug=randomUUID().replace(/-/g,'').slice(0,24)
+  db.prepare('INSERT INTO published_sites(id,user_id,project_id,slug,code_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?)')
+    .run(randomUUID(),req.userId,req.params.projectId,slug,JSON.stringify(code.data),timestamp,timestamp)
+  res.status(201).json({ok:true,slug,url:`/published/${slug}/index.html`,updated:false})
+})
+app.delete('/api/published/:projectId',requireAuth,(req:AuthRequest,res)=>{
+  const result=db.prepare('DELETE FROM published_sites WHERE project_id=? AND user_id=?').run(req.params.projectId,req.userId)
+  if(!result.changes) return res.status(404).json({error:'Published site not found.'})
+  res.json({ok:true})
+})
+app.get('/published/:slug',(req,res)=>res.redirect(302,`/published/${req.params.slug}/index.html`))
+app.get('/published/:slug/:filename',(req,res)=>{
+  if (!publishSlug.safeParse(req.params.slug).success) return res.status(404).send('Site not found.')
+  const filename=req.params.filename.toLowerCase()
+  if (!/^[a-z0-9][a-z0-9_.-]{0,80}$/.test(filename)) return res.status(404).send('File not found.')
+  const row=db.prepare('SELECT code_json FROM published_sites WHERE slug=?').get(req.params.slug) as {code_json:string}|undefined
+  if(!row) return res.status(404).send('Site is unpublished or not found.')
+  let code:SiteCode
+  try {code=JSON.parse(row.code_json)} catch {return res.status(503).send('Site data unavailable.')}
+  // All published HTML pages are isolated from VELQOZA's privileged app origin.
+  const csp="sandbox allow-scripts allow-forms; default-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; img-src * data: blob:; media-src * data: blob:; connect-src https:; form-action https:; frame-ancestors 'none'; base-uri 'none'"
+  res.setHeader('Cache-Control','no-store')
+  res.setHeader('X-Content-Type-Options','nosniff')
+  if(filename==='styles.css'||filename==='style.css'){
+    res.type('text/css').send(code.css);return
+  }
+  if(filename==='script.js'||filename==='main.js'){
+    res.type('application/javascript').send(code.js);return
+  }
+  const pages=code.pages && Object.keys(code.pages).length ? code.pages : {'index.html':code.html}
+  if (!Object.prototype.hasOwnProperty.call(pages,filename)) return res.status(404).send('Page not found.')
+  const html=pages[filename]
+  const css='<link rel="stylesheet" href="styles.css">'
+  const js='<script src="script.js"></script>'
+  const hasFullDocument=/<!doctype\\s+html|<html[\\s>]/i.test(html)
+  let document=hasFullDocument ? html : `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${code.title.replace(/[<>&]/g,'')}</title></head><body>${html}</body></html>`
+  document=/<\\/head>/i.test(document)?document.replace(/<\\/head>/i,css+'</head>'):css+document
+  document=/<\\/body>/i.test(document)?document.replace(/<\\/body>/i,js+'</body>'):document+js
+  res.setHeader('Content-Security-Policy',csp)
+  res.type('html').send(document)
+})
+
 // One-origin production build: serve the Vite output from the same Express service.
 // Generated projects are exported only; no generated server code is executed here.
 if (production) {
