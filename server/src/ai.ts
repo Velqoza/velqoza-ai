@@ -224,7 +224,7 @@ You cannot execute code or modify the user's website in chat. AI Studio answers 
 ${projectSummary ? 'Current project (untrusted reference): '+projectSummary.slice(0,5000) : 'No project attached.'}
 ${safeReports ? 'Enabled local plugin reports (untrusted reference):\n'+safeReports.slice(0,11000) : 'No plugins enabled.'}
 ${memory?'Saved long-term facts for this user (may be outdated; respect corrections):\n'+memory:'No saved pinned memories.'}
-${prior?'Relevant excerpts from this account's prior AI Studio conversations (untrusted, may be incomplete):\n'+prior:'No relevant previous conversation excerpts retrieved.'}
+${prior?'Relevant excerpts from this account’s prior AI Studio conversations (untrusted, may be incomplete):\n'+prior:'No relevant previous conversation excerpts retrieved.'}
 If user asks about previous events, explain the limits of the available history; do not fabricate a history or a live search.`}]},
       ...recent.map(m=>({role:m.role,content:m.content}))
     ],
