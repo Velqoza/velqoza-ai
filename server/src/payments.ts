@@ -11,7 +11,7 @@ export function paypalMode(): 'sandbox'|'live'|null {
   if(env==='sandbox'&&process.env.STAGING_INIT_SCHEMA==='true')return 'sandbox'
   if(env==='live'&&process.env.STAGING_INIT_SCHEMA!=='true'&&
      process.env.NODE_ENV==='production'&&process.env.ENABLE_LIVE_PAYMENTS==='true'&&
-     process.env.LIVE_PAYMENTS_APPROVED==='true')return 'live'
+     process.env.LIVE_PAYMENTS_APPROVED==='true'&&Boolean(process.env.PAYPAL_WEBHOOK_ID?.trim()))return 'live'
   return null
 }
 export function paypalReady(){return paypalMode()!==null}
@@ -45,7 +45,7 @@ async function paypalRequest(method:'POST'|'GET',route:string,body?:unknown,requ
   return response.json() as Promise<PayPalOrder>
 }
 export type PayPalWebhookEvent={id:string;event_type:string;resource?:{
-  id?:string;capture_id?:string;amount?:{value?:string;currency_code?:string};
+  id?:string;capture_id?:string;links?:Array<{rel?:string;href?:string}>;amount?:{value?:string;currency_code?:string};
   disputed_transactions?:Array<{seller_transaction_id?:string;buyer_transaction_id?:string}>
 }}
 export type PayPalWebhookHeaders={
@@ -76,7 +76,11 @@ export async function verifyPayPalWebhook(event:PayPalWebhookEvent,headers:PayPa
 export function webhookCaptureId(event:PayPalWebhookEvent):string|null {
   if(event.event_type==='PAYMENT.CAPTURE.REFUNDED' ||
      event.event_type==='PAYMENT.CAPTURE.REVERSED'){
-    return event.resource?.capture_id||null
+    if(event.resource?.capture_id)return event.resource.capture_id
+    // Refund notifications can carry the parent capture only as a relation.
+    const parent=event.resource?.links?.find(link=>link.rel==='up' && typeof link.href==='string' &&
+      /^https:\/\/api-m\.(?:sandbox\.)?paypal\.com\/v2\/payments\/captures\/[A-Za-z0-9]+$/.test(link.href))
+    return parent?.href?.split('/').pop()||null
   }
   if(event.event_type.startsWith('CUSTOMER.DISPUTE.')){
     const candidates=event.resource?.disputed_transactions||[]
