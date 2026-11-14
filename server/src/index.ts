@@ -448,6 +448,26 @@ app.get('/api/admin/overview', requireAuth,requireAdmin,(req:AuthRequest,res)=>{
    (SELECT COUNT(*) FROM users WHERE is_banned=1) AS banned, (SELECT COALESCE(SUM(balance),0) FROM credit_wallets) AS outstandingCredits`).get()
   res.json({users,totals})
 })
+// Owner-only payment review queue. This intentionally performs no provider
+// refund or automatic entitlement clawback; human reconciliation is required.
+app.get('/api/admin/payments',requireAuth,requireAdmin,(_req,res)=>{
+  const rows=db.prepare(`SELECT p.id,p.user_id AS userId,p.request_id AS requestId,
+    p.status,p.amount_cents AS amountCents,p.currency,p.paypal_order_id AS paypalOrderId,
+    p.paypal_capture_id AS paypalCaptureId,p.created_at AS createdAt,p.fulfilled_at AS fulfilledAt
+    FROM package_payments p ORDER BY p.created_at DESC LIMIT 100`).all()
+  res.json({payments:rows})
+})
+app.get('/api/admin/payments/review',requireAuth,requireAdmin,(_req,res)=>{
+  const rows=db.prepare(`SELECT p.id,p.user_id AS userId,p.amount_cents AS amountCents,p.currency,
+    p.paypal_capture_id AS paypalCaptureId,p.status,p.created_at AS createdAt,
+    e.event_type AS eventType,e.received_at AS receivedAt
+    FROM package_payments p
+    LEFT JOIN payment_webhook_events e ON e.payment_id=p.id
+    WHERE p.status='review_required'
+    ORDER BY e.received_at DESC LIMIT 100`).all()
+  res.json({needsManualReview:true,payments:rows})
+})
+
 app.get('/api/admin/audit', requireAuth,requireAdmin,(_req,res)=>{
   res.json({entries:db.prepare('SELECT action,detail,target_user_id AS targetUserId,created_at AS createdAt FROM admin_audit ORDER BY created_at DESC LIMIT 50').all()})
 })
