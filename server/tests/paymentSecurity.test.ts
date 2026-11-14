@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { paypalMode, priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture, webhookCaptureId, completedWebhookReference } from '../src/payments.js'
+import { paypalMode, priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture, webhookCaptureId, completedWebhookReference, validatedApprovalUrl } from '../src/payments.js'
 
 test('stored package grants are immutable and amount-bound',()=>{
   const selection={type:'package' as const,packageId:'starter' as const}
@@ -67,4 +67,16 @@ test('completed webhook references require valid order and capture IDs',()=>{
   assert.equal(completedWebhookReference({...event,event_type:'PAYMENT.CAPTURE.REFUNDED'}),null)
   assert.equal(completedWebhookReference({...event,resource:{...event.resource,id:'invalid capture'}}),null)
   assert.equal(completedWebhookReference({...event,resource:{id:'CAPTURE0001'}}),null)
+})
+
+test('approval URLs are restricted to the correct PayPal hostname',()=>{
+  const original=process.env.PAYPAL_ENV
+  try{
+    process.env.PAYPAL_ENV='sandbox'
+    const ok={links:[{rel:'payer-action',href:'https://www.sandbox.paypal.com/checkoutnow?token=ORDER123'}]}
+    assert.match(validatedApprovalUrl(ok),/^https:\/\/www\.sandbox\.paypal\.com\//)
+    assert.throws(()=>validatedApprovalUrl({links:[{rel:'payer-action',href:'https://www.sandbox.paypal.com.evil.example/checkout'}]}),/Unexpected payment approval destination/)
+    assert.throws(()=>validatedApprovalUrl({links:[{rel:'approve',href:'http://www.sandbox.paypal.com/checkout'}]}),/Unexpected payment approval destination/)
+    assert.throws(()=>validatedApprovalUrl({links:[]}),/approval link/)
+  }finally{if(original===undefined)delete process.env.PAYPAL_ENV;else process.env.PAYPAL_ENV=original}
 })
