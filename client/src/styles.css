@@ -338,3 +338,56 @@
  .topbar .top-actions{gap:7px}
  .topbar .top-actions>.avatar,.topbar .top-actions>.icon-btn{display:none}
 }
+
+/* Auth footer: spaced, responsive account/recovery actions. */
+.auth-modal .auth-switch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+  font-size: 12px;
+  line-height: 1.55;
+  text-align: center;
+}
+.auth-modal .auth-switch-primary,
+.auth-modal .auth-switch-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 6px;
+  width: 100%;
+}
+.auth-modal .auth-switch-secondary {
+  column-gap: 20px;
+}
+.auth-modal .auth-switch button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 0;
+  color: #c5a5ff;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.auth-modal .auth-switch button:hover,
+.auth-modal .auth-switch button:focus-visible {
+  color: #e4d2ff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.auth-modal .auth-switch button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+@media (max-width: 370px) {
+  .auth-modal .auth-switch-secondary {
+    flex-direction: column;
+    row-gap: 5px;
+  }
+}
