@@ -18,7 +18,7 @@ export function paypalMode(): 'sandbox'|'live'|null {
 }
 export function paypalReady(){return paypalMode()!==null}
 const paypalBase=()=>paypalMode()==='live'?'https://api-m.paypal.com':'https://api-m.sandbox.paypal.com'
-type PayPalOrder={id?:string;status?:string;links?:{href:string;rel:string}[];purchase_units?:{reference_id?:string;custom_id?:string;payments?:{captures?:{id?:string;status?:string;amount?:{currency_code?:string;value?:string}}[]}}[]}
+type PayPalOrder={id?:string;status?:string;links?:{href:string;rel:string}[];purchase_units?:{reference_id?:string;custom_id?:string;amount?:{currency_code?:string;value?:string};payments?:{captures?:{id?:string;status?:string;amount?:{currency_code?:string;value?:string}}[]}}[]}
 async function accessToken():Promise<string>{
   if(!paypalReady())throw new Error('PayPal checkout is not configured.')
   const client=process.env.PAYPAL_CLIENT_ID!,secret=process.env.PAYPAL_CLIENT_SECRET!
@@ -160,12 +160,33 @@ export async function createCheckout(paymentId:string,cents:number,description:s
     payment_source:{paypal:{experience_context:{brand_name:'VELQOZA AI',shipping_preference:'NO_SHIPPING',user_action:'PAY_NOW',
       return_url:returnOrigin+'/?payment=return',cancel_url:returnOrigin+'/?payment=cancel'}}}
   },'create-'+paymentId)
-  const href=result.links?.find(link=>link.rel==='payer-action'||link.rel==='approve')?.href
-  if(!result.id || !href)throw new Error('PayPal did not return an approval link.')
+  if(!result.id)throw new Error('PayPal did not return an order ID.')
+  return {orderId:result.id,approvalUrl:validatedApprovalUrl(result)}
+}
+export function validatedApprovalUrl(order:PayPalOrder):string{
+  const href=order.links?.find(link=>link.rel==='payer-action'||link.rel==='approve')?.href
+  if(!href)throw new Error('PayPal did not provide an approval link.')
   const url=new URL(href)
   if(url.protocol!=='https:'||url.hostname!==(paypalMode()==='live'?'www.paypal.com':'www.sandbox.paypal.com'))
     throw new Error('Unexpected payment approval destination.')
-  return {orderId:result.id,approvalUrl:href}
+  return href
+}
+export async function resumeCheckout(orderId:string,paymentId:string,expectedCents:number){
+  const order=await retrieveCompletedCheckout(orderId)
+  if(order.id!==orderId)throw new Error('PayPal returned a different order ID.')
+  if(order.status==='COMPLETED'){
+    if(verifiedCapture(order,paymentId,expectedCents))throw new Error('Payment is already captured; use payment recovery.')
+    throw new Error('Completed PayPal payment needs manual review.')
+  }
+  if(order.status!=='CREATED'&&order.status!=='PAYER_ACTION_REQUIRED'&&order.status!=='SAVED')
+    throw new Error('PayPal order is no longer available for approval.')
+  const unit=order.purchase_units||[]
+  if(unit.length!==1||unit[0].custom_id!==paymentId||unit[0].reference_id!==paymentId)
+    throw new Error('PayPal order identity does not match the original payment.')
+  const amount=unit[0].amount
+  if(amount?.currency_code!=='USD'||!/^\\d+\\.\\d{2}$/.test(amount.value||'')||Math.round(Number(amount.value)*100)!==expectedCents)
+    throw new Error('PayPal order amount is not the agreed amount.')
+  return {orderId,approvalUrl:validatedApprovalUrl(order)}
 }
 // Recovery is read-only at PayPal: never issue a second capture or charge.
 export async function retrieveCompletedCheckout(orderId:string):Promise<PayPalOrder>{
