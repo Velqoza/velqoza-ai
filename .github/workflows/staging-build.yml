@@ -22,7 +22,7 @@ jobs:
         run: npm --workspace server run test
       - name: Build client and server
         run: npm run build
-      - name: Validate production migration script syntax (do not run migration)
-        run: node --check server/scripts/prepare-production-db.mjs
+      - name: Validate production and Supabase migration script syntax (do not run migrations)
+        run: node --check server/scripts/prepare-production-db.mjs && node --check scripts/migrate-staging-to-supabase.mjs
       - name: Check generated outputs
         run: test -f client/dist/index.html && test -f server/dist/index.js
