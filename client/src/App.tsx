@@ -460,7 +460,7 @@ export default function App() {
       if (!Object.prototype.hasOwnProperty.call(getPages(result.code), previewPage)) setPreviewPage('index.html')
       setMessages(m => [...m, {role:'assistant', text:'Updated files: '+(changedNames.length?changedNames.join(', '):'Project details only')+'. Review preview, then Save. Use Undo AI edit to roll back.'}])
     } catch (e) { setMessages(m => [...m, {role:'assistant', text:`I couldn't apply that change: ${(e as Error).message}`}]) }
-    finally { setBusy(false); void refreshWallet(); requestAnimationFrame(() => editorInputRef.current?.focus()) }
+    finally { setBusy(false); void refreshWallet(); void refreshUsage(); requestAnimationFrame(() => editorInputRef.current?.focus()) }
   }
   function undoLastEdit() {
     if (!undoStack.length) return
