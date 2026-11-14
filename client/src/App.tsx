@@ -148,6 +148,10 @@ export default function App() {
   const [publishApproved, setPublishApproved] = useState(false)
   const [publishing,setPublishing] = useState(false)
   const [publishedUrl,setPublishedUrl] = useState('')
+  const [siteNameInput,setSiteNameInput]=useState('')
+  const [currentPublishedName,setCurrentPublishedName]=useState('')
+  const [nameAvailability,setNameAvailability]=useState<'unknown'|'checking'|'available'|'taken'>('unknown')
+  const [nameReason,setNameReason]=useState('')
   const [publishError,setPublishError] = useState('')
   const [publishDomainMode, setPublishDomainMode] = useState<'temporary'|'existing'|'buy'>('temporary')
   const [publishDomain, setPublishDomain] = useState('')
@@ -608,10 +612,30 @@ export default function App() {
 
   async function openPublish() {
     setPublishOpen(true);setPublishApproved(false);setPublishError('');setPublishedUrl('')
+    setSiteNameInput(slug(projectName).slice(0,40).padEnd(3,'0'))
+    setNameAvailability('unknown');setNameReason('');setCurrentPublishedName('')
     const id=activeIdRef.current
     if (!id) return
-    try {const result=await api.published(id);if(result.publication)setPublishedUrl(result.publication.url)}
+    try {
+      const result=await api.published(id)
+      if(result.publication){
+        setPublishedUrl(result.publication.url)
+        if(result.publication.siteName){setSiteNameInput(result.publication.siteName);setCurrentPublishedName(result.publication.siteName)}
+      }
+    }
     catch(error){setPublishError(error instanceof Error?error.message:'Could not check publication status.')}
+  }
+  async function checkPublicationName() {
+    const name=siteNameInput.trim().toLowerCase()
+    setNameAvailability('checking');setNameReason('')
+    if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)||name.length<3||name.length>40){
+      setNameAvailability('taken');setNameReason('Use 3–40 lowercase letters, numbers or hyphens.');return
+    }
+    if(name===currentPublishedName){setNameAvailability('available');return}
+    try {
+      const result=await api.checkSiteName(name)
+      setNameAvailability(result.available?'available':'taken');setNameReason(result.reason||'')
+    } catch(error){setNameAvailability('unknown');setNameReason(error instanceof Error?error.message:'Could not check name.')}
   }
   async function publishNow() {
     if (!user || !code || !publishApproved || publishing) return
@@ -629,8 +653,10 @@ export default function App() {
       if (!stored || JSON.stringify(stored.code)!==JSON.stringify(code)) {
         throw new Error('Your latest edits are not saved yet. Click Save and try Publish again.')
       }
-      const result=await api.publish(id)
+      const result=await api.publish(id,siteNameInput.trim().toLowerCase())
       setPublishedUrl(result.url)
+      setCurrentPublishedName(result.siteName)
+      setNameAvailability('available')
       flash(result.updated?'Public website updated.':'Website published!')
     } catch(error){setPublishError(error instanceof Error?error.message:'Publishing failed.')}
     finally {setPublishing(false)}
@@ -639,7 +665,7 @@ export default function App() {
     const id=activeIdRef.current
     if (!id || !publishedUrl || !window.confirm('Unpublish this site? Its public link will stop working.')) return
     setPublishing(true);setPublishError('')
-    try {await api.unpublish(id);setPublishedUrl('');flash('Website unpublished.')}
+    try {await api.unpublish(id);setPublishedUrl('');setCurrentPublishedName('');setNameAvailability('unknown');flash('Website unpublished.')}
     catch(error){setPublishError(error instanceof Error?error.message:'Unpublish failed.')}
     finally {setPublishing(false)}
   }
@@ -818,6 +844,21 @@ export default function App() {
           <div style={{marginTop:8}}><a href={publishedUrl} target="_blank" rel="noopener noreferrer">{window.location.origin+publishedUrl}</a></div>
           <button className="outline-btn" style={{marginTop:10}} onClick={()=>{void navigator.clipboard.writeText(window.location.origin+publishedUrl);flash('Public URL copied.')}}><Copy size={14}/> Copy public link</button>
         </div>}
+        <div style={{padding:14,margin:'16px 0',border:'1px solid rgba(255,255,255,.14)',borderRadius:12}}>
+          <strong>Choose your site name</strong>
+          <p style={{fontSize:12,opacity:.8,marginTop:7}}>Reserve a unique name. The future branded address will look like onyx.velqoza.com, after separate DNS and TLS setup.</p>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}>
+            <input aria-label="Website subdomain name" value={siteNameInput} maxLength={40}
+              onChange={e=>{setSiteNameInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,''));setNameAvailability('unknown');setNameReason('')}}
+              placeholder="onyx" style={{minWidth:120,flex:1}}/>
+            <button className="outline-btn" disabled={nameAvailability==='checking'} onClick={()=>void checkPublicationName()}>Check name</button>
+          </div>
+          <p style={{fontSize:13,marginTop:8,overflowWrap:'anywhere'}}><strong>{siteNameInput||'your-site'}.velqoza.com</strong> <span style={{fontSize:11,opacity:.75}}>planned; not live yet</span></p>
+          <p role="status" style={{fontSize:12,marginTop:7,color:nameAvailability==='taken'?'#f3a5a5':'inherit'}}>
+            {nameAvailability==='available'?'✓ Name available for your account':nameAvailability==='taken'?nameReason:nameAvailability==='checking'?'Checking availability...':'Click Check name before publishing.'}
+          </p>
+          <p style={{fontSize:12,opacity:.8,marginTop:8}}>Working preview link after publishing: {window.location.origin}/sites/{siteNameInput||'your-site'}/</p>
+        </div>
         <fieldset style={{border:'1px solid rgba(255,255,255,.14)',borderRadius:12,padding:14,margin:'16px 0'}}>
           <legend style={{padding:'0 6px',fontWeight:700}}>Domain options</legend>
           <div style={{display:'grid',gap:10}}>
@@ -838,7 +879,7 @@ export default function App() {
         </label>
         {publishError && <p role="alert" style={{color:'#f5a6a6',marginTop:12}}>{publishError}</p>}
         <div style={{display:'flex',gap:10,flexWrap:'wrap',marginTop:18}}>
-          <button className="download-btn" disabled={!publishApproved||publishing} onClick={()=>void publishNow()}>{publishing?<LoaderCircle className="spin" size={15}/>:<Rocket size={15}/>} {publishing?'Publishing...':publishedUrl?'Update published website':'Publish now'}</button>
+          <button className="download-btn" disabled={!publishApproved||publishing||nameAvailability!=='available'} onClick={()=>void publishNow()}>{publishing?<LoaderCircle className="spin" size={15}/>:<Rocket size={15}/>} {publishing?'Publishing...':publishedUrl?'Update published website':'Publish now'}</button>
           {publishedUrl && <button className="outline-btn" disabled={publishing} onClick={()=>void unpublishNow()}><X size={15}/> Unpublish</button>}
         </div>
       </div>
