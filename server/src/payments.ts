@@ -2,26 +2,31 @@ import { db } from './db.js'
 import { randomUUID } from 'node:crypto'
 import { PACKAGES, calculateCustomPrice, type CustomQuantity } from './credits.js'
 
-// Staging is intentionally SANDBOX-ONLY. Live payments require a separate,
-// explicit production review; merely setting live PayPal credentials cannot
-// turn this staging checkout into a live charger.
-export function paypalReady() {
-  return process.env.STAGING_INIT_SCHEMA==='true' &&
-    process.env.PAYPAL_ENV==='sandbox' &&
-    Boolean(process.env.PAYPAL_CLIENT_ID?.trim() && process.env.PAYPAL_CLIENT_SECRET?.trim())
+// Live can only be activated on the actual production deployment by its
+// authorized merchant, never on the isolated staging deployment.
+export function paypalMode(): 'sandbox'|'live'|null {
+  const env=process.env.PAYPAL_ENV
+  const credentials=Boolean(process.env.PAYPAL_CLIENT_ID?.trim()&&process.env.PAYPAL_CLIENT_SECRET?.trim())
+  if(!credentials)return null
+  if(env==='sandbox'&&process.env.STAGING_INIT_SCHEMA==='true')return 'sandbox'
+  if(env==='live'&&process.env.STAGING_INIT_SCHEMA!=='true'&&
+     process.env.NODE_ENV==='production'&&process.env.ENABLE_LIVE_PAYMENTS==='true'&&
+     process.env.LIVE_PAYMENTS_APPROVED==='true')return 'live'
+  return null
 }
-const PAYPAL_BASE='https://api-m.sandbox.paypal.com'
+export function paypalReady(){return paypalMode()!==null}
+const paypalBase=()=>paypalMode()==='live'?'https://api-m.paypal.com':'https://api-m.sandbox.paypal.com'
 type PayPalOrder={id?:string;status?:string;links?:{href:string;rel:string}[];purchase_units?:{reference_id?:string;custom_id?:string;payments?:{captures?:{id?:string;status?:string;amount?:{currency_code?:string;value?:string}}[]}}[]}
 async function accessToken():Promise<string>{
-  if(!paypalReady())throw new Error('Sandbox PayPal checkout is not configured.')
+  if(!paypalReady())throw new Error('PayPal checkout is not configured.')
   const client=process.env.PAYPAL_CLIENT_ID!,secret=process.env.PAYPAL_CLIENT_SECRET!
-  const response=await fetch(PAYPAL_BASE+'/v1/oauth2/token',{
+  const response=await fetch(paypalBase()+'/v1/oauth2/token',{
     method:'POST',
     headers:{Authorization:'Basic '+Buffer.from(client+':'+secret).toString('base64'),'Content-Type':'application/x-www-form-urlencoded'},
     body:'grant_type=client_credentials',
     signal:AbortSignal.timeout(20_000)
   })
-  if(!response.ok)throw new Error('PayPal sandbox authentication failed.')
+  if(!response.ok)throw new Error('PayPal authentication failed.')
   const data=await response.json() as {access_token?:string}
   if(!data.access_token)throw new Error('No PayPal access token.')
   return data.access_token
@@ -30,12 +35,12 @@ async function paypalRequest(method:'POST'|'GET',route:string,body?:unknown,requ
   const token=await accessToken()
   const headers:Record<string,string>={Authorization:'Bearer '+token,'Content-Type':'application/json','Accept':'application/json','Prefer':'return=representation'}
   if(requestId)headers['PayPal-Request-Id']=requestId
-  const response=await fetch(PAYPAL_BASE+route,{
+  const response=await fetch(paypalBase()+route,{
     method,headers,body:method==='POST'?JSON.stringify(body??{}):undefined,signal:AbortSignal.timeout(25_000)
   })
   if(!response.ok){
     // No raw provider response or credentials are forwarded to browsers.
-    throw new Error('PayPal sandbox returned an error ('+response.status+').')
+    throw new Error('PayPal returned an error ('+response.status+').')
   }
   return response.json() as Promise<PayPalOrder>
 }
@@ -52,7 +57,7 @@ export function priceSelection(selection:PaidSelection){
   return {credits:item.credits,messages:item.messages,edits:item.edits,generations:item.generations,amountCents:item.usdCents}
 }
 export async function createCheckout(paymentId:string,cents:number,description:string,returnOrigin:string){
-  if(cents<50||cents>1_000_000)throw new Error('PayPal sandbox checkout supports orders from $0.50 to $10,000. Please reduce the selected quantities.')
+  if(cents<50||cents>1_000_000)throw new Error('Checkout supports orders from $0.50 to $10,000. Please reduce the selected quantities.')
   const result=await paypalRequest('POST','/v2/checkout/orders',{
     intent:'CAPTURE',
     purchase_units:[{reference_id:paymentId,custom_id:paymentId,description:description.slice(0,120),amount:{currency_code:'USD',value:(cents/100).toFixed(2)}}],
@@ -62,7 +67,7 @@ export async function createCheckout(paymentId:string,cents:number,description:s
   const href=result.links?.find(link=>link.rel==='payer-action'||link.rel==='approve')?.href
   if(!result.id || !href)throw new Error('PayPal did not return an approval link.')
   const url=new URL(href)
-  if(url.protocol!=='https:'||!['www.sandbox.paypal.com','www.paypal.com'].includes(url.hostname))
+  if(url.protocol!=='https:'||url.hostname!==(paypalMode()==='live'?'www.paypal.com':'www.sandbox.paypal.com'))
     throw new Error('Unexpected payment approval destination.')
   return {orderId:result.id,approvalUrl:href}
 }
