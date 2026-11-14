@@ -166,7 +166,7 @@ app.post('/api/auth/signup', async (req,res) => {
     const passwordHash = await bcrypt.hash(parsed.data.password, 12)
     db.transaction(() => {
       db.prepare('INSERT INTO users (id,email,password_hash,created_at,email_verified) VALUES (?,?,?,?,0)').run(id,email,passwordHash,now())
-      saveEmailToken(id,'verify',token)
+      saveEmailToken(id,'verify',token,true)
     })()
     await sendAccountEmail(email,'verify',token)
     return res.status(201).json({pendingVerification:true,message:'Check your email for a verification link before logging in.'})
