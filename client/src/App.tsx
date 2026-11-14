@@ -804,7 +804,7 @@ export default function App() {
   }
   async function openPublish() {
     setPublishOpen(true);setPublishApproved(false);setPublishError('');setPublishedUrl('')
-    setSiteNameInput(slug(projectName).slice(0,40).padEnd(3,'0'))
+    setSiteNameInput(suggestedPublicationName(projectName||code?.title||'website'))
     setNameAvailability('unknown');setNameReason('');setCurrentPublishedName('')
     const id=activeIdRef.current
     if (!id) return
@@ -817,6 +817,31 @@ export default function App() {
     }
     catch(error){setPublishError(error instanceof Error?error.message:'Could not check publication status.')}
   }
+  useEffect(()=>{
+    if(!publishOpen)return
+    const name=siteNameInput.trim().toLowerCase()
+    if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)||name.length<3||name.length>40){
+      setNameAvailability('taken')
+      setNameReason('Use 3–40 lowercase letters, numbers or hyphens.')
+      return
+    }
+    if(name===currentPublishedName){setNameAvailability('available');setNameReason('');return}
+    let cancelled=false
+    setNameAvailability('checking');setNameReason('')
+    const timer=window.setTimeout(()=>{
+      void api.checkSiteName(name).then(result=>{
+        if(cancelled)return
+        setNameAvailability(result.available?'available':'taken')
+        setNameReason(result.reason||'')
+      }).catch(error=>{
+        if(cancelled)return
+        setNameAvailability('unknown')
+        setNameReason(error instanceof Error?error.message:'Could not check this name.')
+      })
+    },350)
+    return ()=>{cancelled=true;window.clearTimeout(timer)}
+  },[publishOpen,siteNameInput,currentPublishedName])
+
   async function checkPublicationName() {
     const name=siteNameInput.trim().toLowerCase()
     setNameAvailability('checking');setNameReason('')
@@ -1127,7 +1152,7 @@ export default function App() {
       </div>
     </div>}
     {publishOpen && code && <div className="modal-backdrop" onClick={()=>setPublishOpen(false)}>
-      <div className="projects-modal" role="dialog" aria-modal="true" aria-label="Publish website" onClick={e=>e.stopPropagation()}>
+      <div className="projects-modal publish-modal" role="dialog" aria-modal="true" aria-label="Publish website" onClick={e=>e.stopPropagation()}>
         <div className="modal-head"><div><span className="section-kicker">DIRECT PUBLISH</span><h2>Publish {code.title}</h2></div><button className="icon-btn" onClick={()=>setPublishOpen(false)} aria-label="Close publishing"><X/></button></div>
         <p style={{lineHeight:1.7}}>Publish directly from VELQOZA AI. Your website gets a public link hosted on this staging service. No ZIP or external hosting steps.</p>
         {publishedUrl && <div style={{padding:14,background:'rgba(40,180,120,.09)',borderRadius:12,margin:'12px 0',overflowWrap:'anywhere'}}>
@@ -1146,7 +1171,7 @@ export default function App() {
           </div>
           <p style={{fontSize:13,marginTop:8,overflowWrap:'anywhere'}}><strong>{siteNameInput||'your-site'}.velqoza.com</strong> <span style={{fontSize:11,opacity:.75}}>planned; not live yet</span></p>
           <p role="status" style={{fontSize:12,marginTop:7,color:nameAvailability==='taken'?'#f3a5a5':'inherit'}}>
-            {nameAvailability==='available'?'✓ Name available for your account':nameAvailability==='taken'?nameReason:nameAvailability==='checking'?'Checking availability...':'Click Check name before publishing.'}
+            {nameAvailability==='available'?'✓ Name available for your account':nameAvailability==='taken'?nameReason:nameAvailability==='checking'?'Checking availability...':'Checking name automatically. You can also use Check name.'}
           </p>
           <p style={{fontSize:12,opacity:.8,marginTop:8}}>Working preview link after publishing: {window.location.origin}/sites/{siteNameInput||'your-site'}/</p>
         </div>
@@ -1169,7 +1194,8 @@ export default function App() {
           <span>I have reviewed the site and agree to make this frontend website public.</span>
         </label>
         {publishError && <p role="alert" style={{color:'#f5a6a6',marginTop:12}}>{publishError}</p>}
-        <div style={{display:'flex',gap:10,flexWrap:'wrap',marginTop:18}}>
+        {!user && <p role="status" style={{fontSize:13}}>Log in to save and publish this project.</p>}
+        <div className="publish-actions" style={{display:'flex',gap:10,flexWrap:'wrap',marginTop:18}}>
           <button className="download-btn" disabled={!publishApproved||publishing||nameAvailability!=='available'} onClick={()=>void publishNow()}>{publishing?<LoaderCircle className="spin" size={15}/>:<Rocket size={15}/>} {publishing?'Publishing...':publishedUrl?'Update published website':'Publish now'}</button>
           {publishedUrl && <button className="outline-btn" disabled={publishing} onClick={()=>void unpublishNow()}><X size={15}/> Unpublish</button>}
         </div>
@@ -1183,6 +1209,16 @@ export default function App() {
 function Feature({icon,number,title,text}:{icon:React.ReactNode;number:string;title:string;text:string}) { return <article className="feature-card"><div className="feature-top"><span className="feature-icon">{icon}</span><span>{number}</span></div><h3>{title}</h3><p>{text}</p></article> }
 function Step({n,title,text}:{n:string;title:string;text:string}) { return <article className="step"><span>{n}</span><div><h3>{title}</h3><p>{text}</p></div></article> }
 function slug(s:string) { return s.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') || 'website' }
+function suggestedPublicationName(name:string){
+  const ascii=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'').slice(0,40).replace(/-$/,'')
+  if(ascii.length>=3)return ascii
+  // Hebrew/Arabic-only names cannot be DNS labels. Produce a stable readable
+  // ASCII suggestion instead of reusing "website" for everyone's site.
+  let hash=2166136261
+  for(const letter of name){hash=Math.imul(hash ^ (letter.codePointAt(0)||0),16777619)>>>0}
+  return 'site-'+hash.toString(36).padStart(6,'0').slice(0,7)
+}
+
 
 
 // Small, dependency-free chat renderer. Text is escaped by React; code blocks
