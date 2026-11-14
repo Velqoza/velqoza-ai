@@ -45,7 +45,7 @@ const translations:Record<string,[string,string]> = {
     "שיחה חדשה"
   ],
   "Search conversations": [
-    "ابحث في المحادثات",
+    "بحث في المحادثات",
     "חיפוש שיחות"
   ],
   "My Projects": [
@@ -53,8 +53,8 @@ const translations:Record<string,[string,string]> = {
     "הפרויקטים שלי"
   ],
   "Your conversations will appear here.": [
-    "محادثاتك راح تظهر هون.",
-    "השיחות שלך יופיעו כאן."
+    "محادثاتك رح تظهر هون.",
+    "השיחות שלכם יופיעו כאן."
   ],
   "Manage memory": [
     "إدارة الذاكرة",
@@ -190,7 +190,7 @@ const translations:Record<string,[string,string]> = {
   ],
   "Debug my code": [
     "إصلاح الكود",
-    "ניפוי שגיאות בקוד"
+    "תיקון קוד"
   ],
   "Improve my design": [
     "تحسين التصميم",
@@ -355,6 +355,418 @@ const translations:Record<string,[string,string]> = {
   "BUILD WITH CREDITS · PAY AS YOU CREATE": [
     "أنشئ بالرصيد · ادفع حسب الاستخدام",
     "יוצרים עם קרדיטים · משלמים לפי שימוש"
+  ],
+  "How it works": [
+    "كيف يعمل",
+    "איך זה עובד"
+  ],
+  "Build beyond imagination.": [
+    "ابنِ أبعد من الخيال.",
+    "בונים מעבר לדמיון."
+  ],
+  "Back to home": [
+    "العودة للرئيسية",
+    "חזרה לדף הבית"
+  ],
+  "Media": [
+    "الوسائط",
+    "מדיה"
+  ],
+  "Undo AI edit": [
+    "تراجع عن تعديل AI",
+    "ביטול עריכת AI"
+  ],
+  "History": [
+    "السجل",
+    "היסטוריה"
+  ],
+  "Files": [
+    "الملفات",
+    "קבצים"
+  ],
+  "Export ZIP": [
+    "تصدير ZIP",
+    "ייצוא ZIP"
+  ],
+  "VELQOZA assistant": [
+    "مساعد VELQOZA",
+    "העוזר של VELQOZA"
+  ],
+  "AI DESIGN PARTNER": [
+    "شريك التصميم بالذكاء الاصطناعي",
+    "שותף עיצוב AI"
+  ],
+  "CURRENT PROJECT": [
+    "المشروع الحالي",
+    "הפרויקט הנוכחי"
+  ],
+  "Your website is ready to refine.": [
+    "موقعك جاهز للتعديل والتحسين.",
+    "האתר שלך מוכן לשיפורים."
+  ],
+  "What should we improve?": [
+    "شو بدك نحسّن؟",
+    "מה נשפר?"
+  ],
+  "Ask for a change and I'll update your existing website code.": [
+    "اطلب أي تعديل، وأنا بحدّث كود موقعك الحالي.",
+    "בקשו שינוי ואעדכן את הקוד של האתר הקיים."
+  ],
+  "Make the design more premium": [
+    "خلّي التصميم أفخم",
+    "הפוך את העיצוב ליוקרתי יותר"
+  ],
+  "Add a pricing section": [
+    "أضف قسم الأسعار",
+    "הוסף אזור מחירים"
+  ],
+  "Improve mobile responsiveness": [
+    "حسّن التوافق مع الموبايل",
+    "שפר התאמה לנייד"
+  ],
+  "Use a darker color palette": [
+    "استعمل ألوانًا أغمق",
+    "השתמש בפלטת צבעים כהה יותר"
+  ],
+  "Updating your website...": [
+    "جاري تحديث موقعك...",
+    "מעדכן את האתר..."
+  ],
+  "Tell me what you'd like to change, or drop media here...": [
+    "احكيلي شو بدك تغيّر، أو اسحب ملف هون...",
+    "מה תרצו לשנות? אפשר גם לגרור קובץ לכאן..."
+  ],
+  "Uploading attachment…": [
+    "جاري رفع الملف…",
+    "מעלה קובץ…"
+  ],
+  "↵ Enter to send · drag media here": [
+    "↵ إنتر للإرسال · اسحب الملفات هون",
+    "↵ Enter לשליחה · גררו מדיה לכאן"
+  ],
+  "Copy code": [
+    "نسخ الكود",
+    "העתקת קוד"
+  ],
+  "View credits": [
+    "عرض الرصيد",
+    "הצגת קרדיטים"
+  ],
+  "Create account": [
+    "إنشاء حساب",
+    "יצירת חשבון"
+  ],
+  "one-time": [
+    "دفعة واحدة",
+    "תשלום חד־פעמי"
+  ],
+  "Clear usage. No surprise auto-charges.": [
+    "استخدام واضح، بدون خصومات مفاجئة.",
+    "שימוש שקוף, ללא חיובים מפתיעים."
+  ],
+  "Nothing in your way.": [
+    "بدون أي عوائق.",
+    "בלי מכשולים."
+  ],
+  "Everything you need.": [
+    "كل اللي بتحتاجه.",
+    "כל מה שצריך."
+  ],
+  "A complete creative workflow, powered by AI and designed to keep you in control.": [
+    "أدوات متكاملة للإبداع بالذكاء الاصطناعي، وإنت المتحكم بكل التفاصيل.",
+    "סביבת עבודה יצירתית שלמה עם AI, ואתם בשליטה."
+  ],
+  "THE CREATIVE ADVANTAGE": [
+    "ميزة الإبداع",
+    "היתרון היצירתי"
+  ],
+  "Ideas to websites": [
+    "من فكرة لموقع",
+    "מרעיון לאתר"
+  ],
+  "Turn natural language into complete, polished websites with real HTML, CSS and JavaScript.": [
+    "حوّل وصفك لموقع متكامل بكود HTML وCSS وJavaScript حقيقي.",
+    "הופכים תיאור בשפה טבעית לאתר מלא עם HTML, CSS ו־JavaScript אמיתיים."
+  ],
+  "Live visual preview": [
+    "معاينة مباشرة",
+    "תצוגה חיה"
+  ],
+  "See every change instantly. Switch between desktop, tablet and mobile layouts as you build.": [
+    "شوف كل تعديل فورًا وجرّب العرض على الكمبيوتر والتابلت والموبايل.",
+    "רואים כל שינוי מיד, במחשב, בטאבלט ובנייד."
+  ],
+  "Edit with conversation": [
+    "تعديل بالمحادثة",
+    "עריכה בשיחה"
+  ],
+  "Tell your AI assistant what to change. Your existing design evolves with every instruction.": [
+    "احكي للمساعد شو يغيّر، وهو بطوّر تصميمك مع كل طلب.",
+    "ספרו לעוזר מה לשנות והעיצוב ישתפר עם כל בקשה."
+  ],
+  "Your code, always": [
+    "الكود ملكك",
+    "הקוד תמיד שלכם"
+  ],
+  "Download clean source files or export the complete project as a ZIP. No lock-in.": [
+    "نزّل ملفات الكود أو صدّر المشروع كاملًا كـ ZIP.",
+    "הורידו את קבצי המקור או ייצאו את הפרויקט כ־ZIP."
+  ],
+  "Projects that stay yours": [
+    "مشاريعك محفوظة",
+    "הפרויקטים נשארים שלכם"
+  ],
+  "Save your work, reopen previous builds and keep every idea organized in one workspace.": [
+    "احفظ شغلك وافتح مشاريعك القديمة وقت ما بدك.",
+    "שמרו את העבודה ופתחו פרויקטים קודמים בכל עת."
+  ],
+  "AI Studio + tools": [
+    "استوديو AI وأدواته",
+    "AI Studio וכלים"
+  ],
+  "Keep conversations, plan new ideas and use opt-in local project audit plugins.": [
+    "احفظ محادثاتك وخطّط لأفكارك واستعمل أدوات فحص المشاريع.",
+    "שמרו שיחות, תכננו רעיונות והשתמשו בכלי בדיקת פרויקטים."
+  ],
+  "A BETTER WAY TO BUILD": [
+    "طريقة أسهل للبناء",
+    "דרך טובה יותר לבנות"
+  ],
+  "From blank page to": [
+    "من صفحة فاضية إلى",
+    "מדף ריק עד"
+  ],
+  "brand new website.": [
+    "موقع جديد بالكامل.",
+    "לאתר חדש לגמרי."
+  ],
+  "Describe it": [
+    "اوصف فكرتك",
+    "תארו את הרעיון"
+  ],
+  "Generate it": [
+    "أنشئه",
+    "צרו אותו"
+  ],
+  "Make it yours": [
+    "خلّيه على ذوقك",
+    "התאימו לטעמכם"
+  ],
+  "Share your idea, choose a category, and set the visual direction.": [
+    "اكتب فكرتك، واختار نوع الموقع وشكل التصميم.",
+    "שתפו רעיון, בחרו קטגוריה וסגנון עיצוב."
+  ],
+  "The AI turns your brief into a complete website and working code.": [
+    "الذكاء الاصطناعي يحوّل وصفك لموقع كامل بكود شغّال.",
+    "ה־AI הופך את התיאור לאתר עם קוד עובד."
+  ],
+  "Preview, refine with chat, save your project and export your code.": [
+    "عاين الموقع، عدّله بالمحادثة، واحفظ وصدّر الكود.",
+    "צפו, ערכו בצ'אט, שמרו וייצאו את הקוד."
+  ],
+  "PAY AS YOU BUILD": [
+    "ادفع حسب استخدامك",
+    "משלמים לפי שימוש"
+  ],
+  "Build more.": [
+    "ابنِ أكثر.",
+    "בונים יותר."
+  ],
+  "Pay only when you create.": [
+    "وادفع وقت الإنشاء فقط.",
+    "משלמים רק כשיוצרים."
+  ],
+  "No recurring subscription. Buy a credit pack when you need one, then use credits for AI generation, edits and AI Studio conversations. These are preview prices; online checkout is not available yet.": [
+    "بدون اشتراك متجدد. اشترِ رصيدًا عند الحاجة للإنشاء والتعديل والمحادثة. الأسعار مبدئية والدفع الإلكتروني غير متاح حاليًا.",
+    "ללא מנוי מתחדש. קונים קרדיטים לפי הצורך ליצירה, עריכה וצ'אט. המחירים להמחשה בלבד והתשלום המקוון עדיין אינו זמין."
+  ],
+  "Business": [
+    "أعمال",
+    "עסקים"
+  ],
+  "Portfolio": [
+    "معرض أعمال",
+    "תיק עבודות"
+  ],
+  "E-commerce": [
+    "متجر إلكتروني",
+    "חנות מקוונת"
+  ],
+  "Restaurant": [
+    "مطعم",
+    "מסעדה"
+  ],
+  "Blog": [
+    "مدونة",
+    "בלוג"
+  ],
+  "Agency": [
+    "وكالة",
+    "סוכנות"
+  ],
+  "Landing Page": [
+    "صفحة هبوط",
+    "דף נחיתה"
+  ],
+  "SaaS": [
+    "خدمة SaaS",
+    "SaaS"
+  ],
+  "Other": [
+    "أخرى",
+    "אחר"
+  ],
+  "Minimal": [
+    "بسيط",
+    "מינימליסטי"
+  ],
+  "Modern": [
+    "عصري",
+    "מודרני"
+  ],
+  "Luxury": [
+    "فاخر",
+    "יוקרתי"
+  ],
+  "Futuristic": [
+    "مستقبلي",
+    "עתידני"
+  ],
+  "Creative": [
+    "إبداعي",
+    "יצירתי"
+  ],
+  "Starter": [
+    "مبتدئ",
+    "מתחילים"
+  ],
+  "Pro": [
+    "احترافي",
+    "מקצועי"
+  ],
+  "THIS": [
+    "هذا",
+    "זה"
+  ],
+  "ONE PROMPT. ENDLESS POSSIBILITIES.": [
+    "طلب واحد، إمكانيات بلا حدود.",
+    "תיאור אחד, אפשרויות בלי סוף."
+  ],
+  "DESIGN": [
+    "تصميم",
+    "עיצוב"
+  ],
+  "DEVELOP": [
+    "تطوير",
+    "פיתוח"
+  ],
+  "DEPLOY": [
+    "نشر",
+    "פרסום"
+  ],
+  "Drag & drop media here or click Attach media. Files up to 3 MB; they upload to your account and their URL is added to this prompt.": [
+    "اسحب ملف هون أو اضغط إرفاق ملفات. الحد 3 ميغابايت، والملف ينرفع لحسابك وينضاف رابطه للوصف.",
+    "גררו מדיה לכאן או לחצו על צירוף מדיה. עד 3MB, הקובץ עולה לחשבון והקישור נוסף לתיאור."
+  ],
+  "Your last unfinished prompt was restored": [
+    "رجّعنا آخر وصف ما كملته",
+    "הטיוטה האחרונה שוחזרה"
+  ],
+  "Clear": [
+    "مسح",
+    "ניקוי"
+  ],
+  "Drop media to attach to new website prompt": [
+    "اسحب الملف هون لإرفاقه بوصف الموقع",
+    "שחררו את הקובץ לצירוף לתיאור האתר"
+  ],
+  "Drop image, audio or video here": [
+    "اسحب صورة أو صوت أو فيديو هون",
+    "שחררו כאן תמונה, שמע או וידאו"
+  ],
+  "YOUR AI WORKSPACE": [
+    "مساحة عملك الذكية",
+    "סביבת העבודה החכמה שלכם"
+  ],
+  "Local development workspace": [
+    "مساحة عمل التطوير",
+    "סביבת פיתוח"
+  ],
+  "CREATIVE INTELLIGENCE": [
+    "إبداع ذكي",
+    "יצירתיות חכמה"
+  ],
+  "Ask anything, plan a project, debug your code, or brainstorm your next big idea. Your conversations stay organized in your account.": [
+    "اسأل أي شيء، خطّط لمشروع، أصلح الكود أو طوّر فكرة جديدة. محادثاتك محفوظة بحسابك.",
+    "שאלו כל דבר, תכננו פרויקט, תקנו קוד או פתחו רעיון חדש. השיחות מסודרות בחשבון."
+  ],
+  "Help me plan a premium barbershop website.": [
+    "ساعدني أخطّط لموقع حلاقة فاخر.",
+    "עזור לי לתכנן אתר יוקרתי למספרה."
+  ],
+  "Help me troubleshoot a JavaScript error.": [
+    "ساعدني أصلّح خطأ JavaScript.",
+    "עזור לי לתקן שגיאת JavaScript."
+  ],
+  "What makes a website feel premium and cinematic?": [
+    "كيف أخلي الموقع فخم وسينمائي؟",
+    "מה הופך אתר ליוקרתי וקולנועי?"
+  ],
+  "Give me a practical checklist for launching a small business website.": [
+    "اعطيني قائمة عملية لإطلاق موقع شركة صغيرة.",
+    "תן לי רשימה מעשית להשקת אתר לעסק קטן."
+  ],
+  "Error": [
+    "خطأ",
+    "שגיאה"
+  ],
+  "Dismiss": [
+    "إغلاق",
+    "סגירה"
+  ],
+  "No pinned memories yet.": [
+    "ما في ذكريات محفوظة بعد.",
+    "עדיין אין זיכרונות שמורים."
+  ],
+  "Save memory": [
+    "حفظ معلومة",
+    "שמירת זיכרון"
+  ],
+  "New memory": [
+    "معلومة جديدة",
+    "זיכרון חדש"
+  ],
+  "TOOLS & EXTENSIONS": [
+    "الأدوات والإضافات",
+    "כלים ותוספים"
+  ],
+  "Built-in plugins": [
+    "إضافات مدمجة",
+    "תוספים מובנים"
+  ],
+  "Enable local analysis tools. External services aren't connected.": [
+    "فعّل أدوات التحليل المحلية. الخدمات الخارجية غير متصلة.",
+    "הפעילו כלי ניתוח מקומיים. שירותים חיצוניים אינם מחוברים."
+  ],
+  "Review files": [
+    "مراجعة الملفات",
+    "בדיקת קבצים"
+  ],
+  "Start building": [
+    "ابدأ الإنشاء",
+    "התחילו ליצור"
+  ],
+  "Open sidebar": [
+    "فتح القائمة",
+    "פתיחת תפריט"
+  ],
+  "Collapse sidebar": [
+    "إخفاء القائمة",
+    "סגירת תפריט"
+  ],
+  "Open memory": [
+    "فتح الذاكرة",
+    "פתיחת זיכרון"
   ]
 }
 export function translate(language:UiLanguage,english:string):string{
