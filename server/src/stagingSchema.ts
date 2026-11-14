@@ -145,4 +145,12 @@ CREATE TABLE IF NOT EXISTS velqoza_ai.package_payments (
  fulfilled_at TEXT
 );
 CREATE INDEX IF NOT EXISTS package_payments_owner ON velqoza_ai.package_payments(user_id,created_at DESC);
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.quota_reservations (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL,
+ refunded INTEGER NOT NULL DEFAULT 0,
+ created_at TEXT NOT NULL
+);
 `;
