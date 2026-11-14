@@ -124,4 +124,25 @@ CREATE TABLE IF NOT EXISTS velqoza_ai.package_requests (
  created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS package_requests_owner ON velqoza_ai.package_requests(user_id,created_at DESC);
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.usage_quotas (
+ user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL CHECK(kind IN ('studio','edit','generate')),
+ remaining BIGINT NOT NULL DEFAULT 0 CHECK(remaining>=0),
+ PRIMARY KEY(user_id,kind)
+);
+CREATE TABLE IF NOT EXISTS velqoza_ai.package_payments (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+ request_id TEXT NOT NULL UNIQUE REFERENCES velqoza_ai.package_requests(id) ON DELETE CASCADE,
+ paypal_order_id TEXT UNIQUE,
+ paypal_capture_id TEXT UNIQUE,
+ amount_cents BIGINT NOT NULL,
+ currency TEXT NOT NULL,
+ selection_json TEXT NOT NULL,
+ status TEXT NOT NULL,
+ created_at TEXT NOT NULL,
+ fulfilled_at TEXT
+);
+CREATE INDEX IF NOT EXISTS package_payments_owner ON velqoza_ai.package_payments(user_id,created_at DESC);
 `;
