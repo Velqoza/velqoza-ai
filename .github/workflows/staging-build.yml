@@ -17,7 +17,12 @@ jobs:
           node-version: '22'
           cache: npm
       - name: Install dependencies
-        run: npm ci --no-audit --no-fund
+        run: npm install --no-audit --no-fund
+      - name: Upload refreshed lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: refreshed-package-lock
+          path: package-lock.json
       - name: Run unit tests
         run: npm --workspace server run test
       - name: Build client and server
