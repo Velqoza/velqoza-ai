@@ -18,7 +18,7 @@ import { studioPluginCatalog, runStudioPlugins } from './studioPlugins.js'
 import type { AuthRequest, SiteCode } from './types.js'
 import { validateExtraFiles } from './projectFiles.js'
 import { COSTS, PACKAGES, CUSTOM_LIMITS, CUSTOM_UNIT_PRICES_CENTS, calculateCustomPrice, getCredits, getCreditHistory, chargeAI, refundAI, purchasedQuota, redeemVoucher } from './credits.js'
-import { paypalReady, paypalMode, createCheckout, captureCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, verifyPayPalWebhook, recordVerifiedPaymentEvent, type PayPalWebhookEvent } from './payments.js'
+import { paypalReady, paypalMode, createCheckout, captureCheckout, retrieveCompletedCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, verifyPayPalWebhook, recordVerifiedPaymentEvent, type PayPalWebhookEvent } from './payments.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -286,6 +286,29 @@ app.post('/api/packages/checkout/capture',requireAuth,rateLimit({windowMs:60*60_
   }catch(error){
     console.error('PayPal capture/reconciliation failed',error)
     res.status(502).json({error:'Payment confirmation could not be completed. Your credits have not been updated; retry confirmation or contact support.'})
+  }
+})
+
+// Customer-triggered recovery for a capture already completed at PayPal.
+// Does not execute any PayPal capture, and grants only after exact, verified matching.
+app.post('/api/packages/checkout/recover',requireAuth,rateLimit({windowMs:60*60_000,limit:8,standardHeaders:'draft-7',legacyHeaders:false}),async(req:AuthRequest,res)=>{
+  if(!paypalReady())return res.status(503).json({error:'PayPal is unavailable.'})
+  const parsed=checkoutRequestBody.safeParse(req.body)
+  if(!parsed.success)return res.status(400).json({error:'Invalid package request.'})
+  const payment=db.prepare('SELECT id,status,paypal_order_id AS orderId,amount_cents AS amountCents,currency FROM package_payments WHERE user_id=? AND request_id=?')
+    .get(req.userId,parsed.data.requestId) as {id:string;status:string;orderId:string|null;amountCents:number;currency:string}|undefined
+  if(!payment)return res.status(404).json({error:'No PayPal order found for this request.'})
+  if(payment.status==='completed')return res.json({ok:true,alreadyApplied:true,balance:getCredits(req.userId!)})
+  if(payment.status!=='created'||!payment.orderId||payment.currency!=='USD')return res.status(409).json({error:'No completed payment is available for recovery.'})
+  try{
+    const order=await retrieveCompletedCheckout(payment.orderId)
+    const captureId=verifiedCapture(order,payment.id,payment.amountCents)
+    if(!captureId)return res.status(409).json({error:'PayPal has not confirmed a matching completed capture. No Credits were added.'})
+    const result=fulfillVerifiedPayment(payment.id,captureId)
+    return res.json({ok:true,alreadyApplied:result.alreadyApplied,balance:getCredits(req.userId!)})
+  }catch(error){
+    console.error('PayPal completed payment recovery failed',error)
+    return res.status(502).json({error:'Unable to verify the completed payment. Please retry later or contact support.'})
   }
 })
 
