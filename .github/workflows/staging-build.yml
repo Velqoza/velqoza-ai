@@ -1,0 +1,26 @@
+name: VELQOZA AI staging build
+on:
+  push:
+    branches: [staging-production-prep]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Run unit tests
+        run: npm --workspace server run test
+      - name: Build client and server
+        run: npm run build
+      - name: Check generated outputs
+        run: test -f client/dist/index.html && test -f server/dist/index.js
