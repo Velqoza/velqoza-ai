@@ -60,7 +60,7 @@ export function priceSelection(selection:PaidSelection):PaymentGrants{
 export function serializePaymentSnapshot(selection:PaidSelection,grants:PaymentGrants){
   return JSON.stringify({selection,grants})
 }
-function validatedGrants(raw:string,paidCents:number):PaymentGrants {
+export function validatedGrants(raw:string,paidCents:number):PaymentGrants {
   const stored=JSON.parse(raw) as {selection?:PaidSelection;grants?:PaymentGrants}
   // Require immutable snapshots. Old checkout records cannot be automatically
   // fulfilled until manually reconciled against the original catalog.
