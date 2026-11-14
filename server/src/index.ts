@@ -6,6 +6,7 @@ import bcrypt from 'bcryptjs'
 import { randomUUID } from 'node:crypto'
 import { newEmailToken,saveEmailToken,redeemEmailToken,sendAccountEmail,emailReady } from './emailAuth.js'
 import path from 'node:path'
+import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
@@ -979,5 +980,19 @@ app.use((err:any,_req:express.Request,res:express.Response,_next:express.NextFun
 })
 applyOwnerTenGenerationGrant()
 app.listen(port,()=>console.log(`VELQOZA API listening on http://localhost:${port}`))
+// Staging-only, explicitly approved one-time copy. The original Render database
+// remains the active source; no deletion, cutover, or payment activation occurs.
+if(process.env.VELQOZA_MIGRATION_APPROVED==='TRANSFER_EMPTY_TARGET'){
+  if(process.env.RENDER_SERVICE_ID!=='srv-dbs3comi0phs73c0s1dg'||process.env.STAGING_INIT_SCHEMA!=='true'){
+    console.error('[Migration] Refusing: this is not the isolated staging service.')
+  }else{
+    const script=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../scripts/migrate-staging-to-supabase.mjs')
+    const child=spawn(process.execPath,[script,'--apply'],{env:process.env,stdio:['ignore','pipe','pipe']})
+    child.stdout.on('data',chunk=>console.info('[Migration]',String(chunk).slice(0,7000)))
+    child.stderr.on('data',chunk=>console.error('[Migration]',String(chunk).slice(0,7000)))
+    child.on('exit',code=>console.info('[Migration] One-time transfer exited with status '+code))
+    child.on('error',error=>console.error('[Migration] Process start failed:',error.message))
+  }
+}
 // This never switches the active database. Staging-only, read-only connection test.
 void probeSupabaseDatabase()
