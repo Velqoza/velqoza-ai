@@ -6,12 +6,15 @@ export const newEmailToken = () => randomBytes(32).toString('hex')
 export type EmailPurpose = 'verify' | 'reset'
 const ttl = { verify: 24 * 60 * 60 * 1000, reset: 30 * 60 * 1000 }
 
-export function saveEmailToken(userId: string, purpose: EmailPurpose, token: string) {
-  db.transaction(() => {
+export function saveEmailToken(userId: string, purpose: EmailPurpose, token: string, insideTransaction = false) {
+  const write = () => {
     db.prepare('DELETE FROM email_auth_tokens WHERE user_id=? AND purpose=?').run(userId,purpose)
     db.prepare('INSERT INTO email_auth_tokens(id,user_id,purpose,token_hash,expires_at,created_at) VALUES(?,?,?,?,?,?)')
       .run(randomUUID(),userId,purpose,tokenHash(token),new Date(Date.now()+ttl[purpose]).toISOString(),new Date().toISOString())
-  })()
+  }
+  // Signup already owns an outer transaction; preserve atomic writes without nesting.
+  if (insideTransaction) write()
+  else db.transaction(write)()
 }
 export function removeEmailToken(token: string, purpose: EmailPurpose) {
   db.prepare('DELETE FROM email_auth_tokens WHERE token_hash=? AND purpose=?').run(tokenHash(token),purpose)
