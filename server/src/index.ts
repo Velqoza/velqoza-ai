@@ -186,6 +186,9 @@ app.get('/api/health', (_req,res) => {
     db.prepare('SELECT id FROM projects LIMIT 0').all()
     db.prepare('SELECT id FROM package_payments LIMIT 0').all()
     db.prepare('SELECT id FROM payment_webhook_events LIMIT 0').all()
+    db.prepare('SELECT user_id FROM usage_quotas LIMIT 0').all()
+    db.prepare('SELECT id FROM credit_ledger LIMIT 0').all()
+    db.prepare('SELECT user_id FROM credit_wallets LIMIT 0').all()
     res.json({ok:true, database:'ready', aiConfigured:Boolean(process.env.OPENAI_API_KEY)})
   } catch (error) {
     console.error('Database health check failed', error)
@@ -229,7 +232,7 @@ app.post('/api/packages/requests',requireAuth,rateLimit({windowMs:60*60_000,limi
   res.status(201).json({request:{id,selection:{...selection,pricing},pricing,status:'pending',createdAt},checkoutEnabled:false,message:'Request saved for review; no payment or credits have been processed.'})
 })
 
-// PayPal SANDBOX checkout only. Quotes are immutable snapshots at order
+// PayPal checkout: staging Sandbox or explicitly authorized production Live. Immutable snapshots at order
 // creation; no self-reported price, status or redirect token grants benefits.
 app.post('/api/packages/checkout',requireAuth,rateLimit({windowMs:60*60_000,limit:8,standardHeaders:'draft-7',legacyHeaders:false}),async(req:AuthRequest,res)=>{
   if(!paypalReady())return res.status(503).json({error:'PayPal checkout is not enabled for this environment.'})
@@ -243,7 +246,7 @@ app.post('/api/packages/checkout',requireAuth,rateLimit({windowMs:60*60_000,limi
   // Price changes require a fresh quote, never an unexpected higher charge.
   const originalQuote=(selection as PaidSelection & {pricing?:{totalCents?:number}}).pricing
   if(originalQuote?.totalCents!==pricing.amountCents)return res.status(409).json({error:'Package pricing changed. Request a new quote before checkout.'})
-  if(pricing.amountCents<50||pricing.amountCents>1_000_000)return res.status(400).json({error:'Sandbox checkout is limited to $0.50–$10,000. Reduce the custom quantity.'})
+  if(pricing.amountCents<50||pricing.amountCents>1_000_000)return res.status(400).json({error:'Checkout is limited to $0.50–$10,000. Reduce the custom quantity.'})
   const origin=(process.env.CLIENT_ORIGIN||'').split(',').map(x=>x.trim()).find(x=>x.startsWith('https://'))
   if(!origin)return res.status(503).json({error:'Secure checkout return origin is not configured.'})
   const existing=db.prepare('SELECT id,status,paypal_order_id FROM package_payments WHERE request_id=? AND user_id=?')
