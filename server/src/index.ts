@@ -480,6 +480,22 @@ app.get('/api/admin/overview', requireAuth,requireAdmin,(req:AuthRequest,res)=>{
    (SELECT COUNT(*) FROM users WHERE is_banned=1) AS banned, (SELECT COALESCE(SUM(balance),0) FROM credit_wallets) AS outstandingCredits`).get()
   res.json({users,totals})
 })
+// Safe, owner-only deployment readiness view. Never returns environment values,
+// PayPal keys or database URLs, and does not authorize charging customers.
+app.get('/api/admin/payments/readiness',requireAuth,requireAdmin,(_req,res)=>{
+  const checks=[
+    {label:'Production service',ok:process.env.NODE_ENV==='production'&&process.env.RENDER_SERVICE_ID!=='srv-dbs3comi0phs73c0s1dg'&&process.env.STAGING_INIT_SCHEMA!=='true'},
+    {label:'Persistent database configured',ok:Boolean(process.env.DATABASE_URL?.trim())},
+    {label:'HTTPS return URL configured',ok:Boolean(process.env.CLIENT_ORIGIN?.split(',').some(x=>x.trim().startsWith('https://')))},
+    {label:'PayPal Live selected',ok:process.env.PAYPAL_ENV==='live'},
+    {label:'PayPal merchant credentials present',ok:Boolean(process.env.PAYPAL_CLIENT_ID?.trim()&&process.env.PAYPAL_CLIENT_SECRET?.trim())},
+    {label:'Separate PayPal webhook ID present',ok:Boolean(process.env.PAYPAL_WEBHOOK_ID?.trim())},
+    {label:'Merchant/operator approval flags',ok:process.env.ENABLE_LIVE_PAYMENTS==='true'&&process.env.LIVE_PAYMENTS_APPROVED==='true'}
+  ]
+  // This report only describes configuration; data migration, backups,
+  // webhook delivery and authorized merchant approval still require review.
+  res.json({checks,configured:checks.every(x=>x.ok),checkoutEnabled:paypalReady(),mode:paypalMode(),note:'Configuration checks only. Data migration, persistence, endpoint reachability and real checkout have not been verified.'})
+})
 // Owner-only payment review queue. This intentionally performs no provider
 // refund or automatic entitlement clawback; human reconciliation is required.
 app.get('/api/admin/payments',requireAuth,requireAdmin,(_req,res)=>{
