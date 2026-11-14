@@ -99,4 +99,12 @@ CREATE TABLE IF NOT EXISTS velqoza_ai.media_assets (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS media_assets_user_created ON velqoza_ai.media_assets(user_id,created_at DESC);
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.studio_memories (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+ content TEXT NOT NULL,
+ created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS studio_memories_owner ON velqoza_ai.studio_memories(user_id,created_at DESC);
 `;
