@@ -47,11 +47,12 @@ function UsageItem({item,label,now,compact=false}:{item:UsageState['usage'][Usag
   const remaining=Math.max(0,item.remaining)
   const ms=item.nextAvailableAt ? Math.max(0,Date.parse(item.nextAvailableAt)-now) : 0
   const until=ms ? `${Math.floor(ms/3600000)>0?Math.floor(ms/3600000)+'h ':''}${Math.ceil(ms%3600000/60000)}m` : null
-  if(compact)return <span aria-live="polite" title={item.limit+' requests per two-hour rolling window'} style={{fontSize:12,opacity:.9,whiteSpace:'nowrap'}}>{label}: <strong>{remaining}/{item.limit}</strong>{until ? ' · Next in '+until : ''}</span>
+  if(compact)return <span aria-live="polite" title={item.limit+' requests per two-hour rolling window, plus purchased quota'} style={{fontSize:12,opacity:.9,whiteSpace:'nowrap'}}>{label}: <strong>{remaining}/{item.limit}</strong>{item.purchasedRemaining>0 ? ' · Purchased '+item.purchasedRemaining : ''}{until && !item.purchasedRemaining ? ' · Next in '+until : ''}</span>
   return <div style={{display:'grid',gap:6,padding:'8px 0'}}>
     <div style={{display:'flex',justifyContent:'space-between',gap:10}}><strong>{label}</strong><span>{remaining} / {item.limit} left</span></div>
     <div style={{height:7,background:'rgba(150,150,170,.25)',borderRadius:99,overflow:'hidden'}}><div style={{height:'100%',width:((remaining/item.limit)*100||0)+'%',background:'#ad8cff',borderRadius:99}}/></div>
-    {until && <small style={{opacity:.76}}>Next request available in {until}</small>}
+    {item.purchasedRemaining>0 && <small style={{opacity:.9}}>Purchased extras: <strong>{item.purchasedRemaining.toLocaleString()}</strong> (used before Credits, no double charge)</small>}
+    {until && !item.purchasedRemaining && <small style={{opacity:.76}}>Next request available in {until}</small>}
   </div>
 }
 
@@ -76,6 +77,7 @@ export default function App() {
   const [packageTab,setPackageTab]=useState<'bundles'|'custom'>('bundles')
   const [packageQuantities,setPackageQuantities]=useState({credits:10,messages:0,edits:0,generations:0})
   const [packageRequestBusy,setPackageRequestBusy]=useState(false)
+  const checkoutCaptureRef=useRef('')
   const [packageFeedback,setPackageFeedback]=useState('')
 
   const [voucherCode,setVoucherCode] = useState('')
@@ -122,16 +124,63 @@ export default function App() {
       setWalletBalance(wallet.balance);setWalletInfo(wallet);setPackageCatalog(catalog);setPackageRequestHistory(requests.requests)
     } catch(e){setPackageFeedback(e instanceof Error?e.message:'Could not load package options.')}
   }
+  const initiateSandboxPayment=async(requestId:string)=>{
+    if(!packageCatalog?.checkoutEnabled)return
+    const result=await api.startCheckout(requestId)
+    const url=new URL(result.approvalUrl)
+    if(url.protocol!=='https:'||url.hostname!=='www.sandbox.paypal.com')throw new Error('Unexpected sandbox checkout destination.')
+    window.location.assign(url.href)
+  }
   const submitPackageRequest=async(selection:{type:'package';packageId:string}|{type:'custom';credits:number;messages:number;edits:number;generations:number})=>{
     if(packageRequestBusy)return
     setPackageRequestBusy(true);setPackageFeedback('')
     try {
       const result=await api.requestPackage(selection)
       setPackageRequestHistory(previous=>[{...result.request,selection},...previous])
-      setPackageFeedback('Request saved for review. No payment was taken and no credits or quotas have been activated.')
-    }catch(error){setPackageFeedback(error instanceof Error?error.message:'Could not save request.')}
+      if(packageCatalog?.checkoutEnabled){
+        setPackageFeedback('Opening PayPal Sandbox checkout…')
+        await initiateSandboxPayment(result.request.id)
+      } else {
+        setPackageFeedback('Request saved. Sandbox checkout is not configured yet; no payment or quota was applied.')
+      }
+    }catch(error){setPackageFeedback(error instanceof Error?error.message:'Could not save request or start checkout.')}
     finally{setPackageRequestBusy(false)}
   }
+  const checkoutExistingRequest=async(requestId:string)=>{
+    if(packageRequestBusy)return
+    setPackageRequestBusy(true);setPackageFeedback('')
+    try{await initiateSandboxPayment(requestId)}
+    catch(error){setPackageFeedback(error instanceof Error?error.message:'Could not open PayPal Sandbox')}
+    finally{setPackageRequestBusy(false)}
+  }
+  useEffect(()=>{
+    if(!user)return
+    const query=new URLSearchParams(window.location.search)
+    const paymentStatus=query.get('payment')
+    if(paymentStatus==='cancel'){
+      setPackageFeedback('Sandbox checkout was cancelled. No payment or quotas were applied.')
+      setWalletOpen(true)
+      window.history.replaceState({},'',window.location.pathname+window.location.hash)
+      return
+    }
+    if(paymentStatus!=='return')return
+    const orderId=query.get('token')
+    if(!orderId||checkoutCaptureRef.current===orderId)return
+    checkoutCaptureRef.current=orderId
+    setWalletOpen(true);setPackageFeedback('Verifying your sandbox payment…')
+    void (async()=>{
+      try{
+        await api.captureCheckout(orderId)
+        const [wallet,requests,catalog]=await Promise.all([api.credits(),api.packageRequests(),api.packagesCatalog()])
+        setWalletBalance(wallet.balance);setWalletInfo(wallet);setPackageRequestHistory(requests.requests);setPackageCatalog(catalog)
+        setPackageFeedback('Sandbox payment verified. Your purchased Credits and AI usage quotas are now available.')
+        void refreshUsage()
+        window.history.replaceState({},'',window.location.pathname+window.location.hash)
+      }catch(error){
+        setPackageFeedback((error instanceof Error?error.message:'Payment verification failed.')+' Reload the return URL to retry verification. No unverified benefits are granted.')
+      }
+    })()
+  },[user?.id])
   const redeemCode=async()=>{
     if(!voucherCode.trim() || voucherBusy) return
     setVoucherBusy(true);setVoucherFeedback('')
@@ -995,7 +1044,7 @@ export default function App() {
     <div className="admin-toolbar"><input placeholder="Find account by email" value={adminSearch} onChange={e=>setAdminSearch(e.target.value)}/><button className="studio-top-btn" onClick={()=>void loadAdmin()}>Refresh</button></div>
     {adminError && <p className="admin-error" role="alert">{adminError}</p>}<div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Account</th><th>Projects</th><th>Credits</th><th>Status</th><th>Owner actions</th></tr></thead><tbody>{(adminData?.users||[]).filter(u=>u.email.toLowerCase().includes(adminSearch.toLowerCase())).map(u=><tr key={u.id}><td><strong>{u.email}</strong><small>{new Date(u.createdAt).toLocaleDateString()}</small></td><td>{u.projects}</td><td>{u.credits}</td><td>{u.isBanned?'Suspended':'Active'}</td><td><div className="admin-actions"><button disabled={adminBusy} onClick={()=>adjustCredits(u.id,u.email,1)}>+ Credits</button><button disabled={adminBusy} onClick={()=>adjustCredits(u.id,u.email,-1)}>− Credits</button>{u.id!==user.id && <><button disabled={adminBusy} onClick={()=>{if(window.confirm(`${u.isBanned?'Restore':'Suspend'} ${u.email}?`))void runAdmin(()=>api.adminBan(u.id,!u.isBanned))}}>{u.isBanned?'Unban':'Ban'}</button><button className="admin-danger" disabled={adminBusy} onClick={()=>{if(window.prompt(`Permanently delete ${u.email} and all projects? Type DELETE ACCOUNT`) !== 'DELETE ACCOUNT')return;void runAdmin(()=>api.adminDelete(u.id))}}>Delete</button></>}</div></td></tr>)}</tbody></table></div>
     <div className="admin-audit"><h3>Recent owner actions</h3>{adminAudit.length===0?<p>No actions yet.</p>:adminAudit.slice(0,15).map((a,i)=><p key={i}><strong>{a.action}</strong> · {new Date(a.createdAt).toLocaleString()} · {a.detail}</p>)}</div></section></div>}
-    {walletOpen && <div className="modal-backdrop" onClick={()=>setWalletOpen(false)}><div className="projects-modal" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><span className="section-kicker">VELQOZA WALLET</span><h2>{walletInfo?.balance ?? '—'} Credits</h2></div><button className="icon-btn" onClick={()=>setWalletOpen(false)}><X/></button></div><p>Credits power your AI builds and edits. Online checkout is not available yet; prepaid codes can be redeemed here after you receive one from VELQOZA support.</p>
+    {walletOpen && <div className="modal-backdrop" onClick={()=>setWalletOpen(false)}><div className="projects-modal" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><span className="section-kicker">VELQOZA WALLET</span><h2>{walletInfo?.balance ?? '—'} Credits</h2></div><button className="icon-btn" onClick={()=>setWalletOpen(false)}><X/></button></div><p>Credits power your AI builds and edits. Checkout on this staging site uses PayPal Sandbox only when configured; no real money is charged. Prepaid codes can also be redeemed here after receiving one from VELQOZA support.</p>
     <div className="voucher-box"><label htmlFor="voucher-code">Redeem prepaid code</label><div className="voucher-row"><input id="voucher-code" value={voucherCode} onChange={e=>setVoucherCode(e.target.value)} placeholder="VQ-..." autoComplete="off" maxLength={100}/><button disabled={voucherBusy||!voucherCode.trim()} onClick={redeemCode}>{voucherBusy?'Checking...':'Redeem'}</button></div>{voucherFeedback && <p role="status" className="voucher-feedback">{voucherFeedback}</p>}<small>Never send your password or API keys to purchase credits. A code works only once.</small></div><div style={{display:'flex',gap:8,margin:'20px 0 12px',flexWrap:'wrap'}}>
       <button className="outline-btn" onClick={()=>setPackageTab('bundles')} aria-pressed={packageTab==='bundles'} style={{borderColor:packageTab==='bundles'?'#a68aff':undefined}}>Packages</button>
       <button className="outline-btn" onClick={()=>setPackageTab('custom')} aria-pressed={packageTab==='custom'} style={{borderColor:packageTab==='custom'?'#a68aff':undefined}}>Custom Builder</button>
@@ -1003,7 +1052,7 @@ export default function App() {
     {packageTab==='bundles'?
       <div className="credit-packages">{packageCatalog?.packages.map(p=><div key={p.id} className="credit-package" style={{display:'flex',flexDirection:'column',gap:8}}>
         <strong>{p.label}</strong><span>{p.credits.toLocaleString()} Credits</span><span>{p.messages.toLocaleString()} AI Studio messages</span><span>{p.edits.toLocaleString()} edits</span><span>{p.generations.toLocaleString()} generations</span><b>${(p.usdCents/100).toFixed(0)} <small>illustrative price</small></b>
-        <button className="outline-btn" disabled={packageRequestBusy} onClick={()=>void submitPackageRequest({type:'package',packageId:p.id})}>Request this package</button>
+        <button className="outline-btn" disabled={packageRequestBusy} onClick={()=>void submitPackageRequest({type:'package',packageId:p.id})}>{packageCatalog?.checkoutEnabled?'Pay with PayPal Sandbox':'Request this package'}</button>
       </div>)}</div>:
       <section style={{border:'1px solid rgba(160,135,220,.25)',borderRadius:14,padding:16,display:'grid',gap:13}}>
         <h3 style={{margin:0}}>Build your own package</h3>
@@ -1027,12 +1076,15 @@ export default function App() {
         </div>
         <small style={{opacity:.75}}>Total updates instantly. This is an estimate; submitting a request does not charge payment.</small>
         <button className="generate-btn" disabled={packageRequestBusy||!packageCatalog||Object.values(packageQuantities).every(v=>v===0)||packageQuantities.credits>0&&packageQuantities.credits<10} onClick={()=>void submitPackageRequest({type:'custom',...packageQuantities})}>
-          {packageRequestBusy?'Saving request…':'Request custom quote'}
+          {packageRequestBusy?'Processing…':packageCatalog?.checkoutEnabled?'Pay with PayPal Sandbox':'Request custom quote'}
         </button>
       </section>}
     {packageFeedback&&<p role="status" style={{padding:10,border:'1px solid rgba(170,145,210,.3)',borderRadius:8}}>{packageFeedback}</p>}
-    <p className="credit-prices">Custom prices use provisional USD unit rates set on the server. Package quantities and listed bundle prices are proposals, not active entitlements. Requests do not make payments or change your usage limits. Final prices and renewal periods are pending confirmation. Current AI charges: Generate {walletInfo?.costs.generate ?? '—'} · Edit {walletInfo?.costs.edit ?? '—'} · Chat {walletInfo?.costs.studio ?? '—'} Credits per request.</p>
-    {packageRequestHistory.length>0&&<div style={{marginTop:16}}><strong>Your package requests</strong>{packageRequestHistory.slice(0,5).map(request=><p key={request.id} style={{fontSize:12,margin:'6px 0'}}>#{request.id.slice(0,8)} · {request.status} · {new Date(request.createdAt).toLocaleString()}</p>)}</div>}
+    <p className="credit-prices">Custom prices use provisional USD unit rates set on the server. Package quantities and listed bundle prices are proposals, not active entitlements. Quote requests do not make payments or change your usage limits. Only a completed, verified sandbox capture activates purchased usage. Final prices and renewal periods are pending confirmation. Current AI charges: Generate {walletInfo?.costs.generate ?? '—'} · Edit {walletInfo?.costs.edit ?? '—'} · Chat {walletInfo?.costs.studio ?? '—'} Credits per request.</p>
+    {packageRequestHistory.length>0&&<div style={{marginTop:16}}><strong>Your package requests</strong>{packageRequestHistory.slice(0,5).map(request=><div key={request.id} style={{fontSize:12,margin:'7px 0',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+      <span>#{request.id.slice(0,8)} · {request.status} · {new Date(request.createdAt).toLocaleString()}</span>
+      {request.status==='pending'&&packageCatalog?.checkoutEnabled&&<button disabled={packageRequestBusy} className="outline-btn" onClick={()=>void checkoutExistingRequest(request.id)}>Pay with PayPal Sandbox</button>}
+    </div>)}</div>}
     <div className="wallet-history"><div className="wallet-history-head"><strong>Recent activity</strong><button type="button" onClick={()=>void refreshWallet()} title="Refresh balance and activity"><RotateCcw size={14}/> Refresh</button></div>
     {walletInfo?.ledger?.length ? <div className="wallet-ledger" role="list">{walletInfo.ledger.slice(0,12).map(entry=><div className="wallet-ledger-row" role="listitem" key={entry.id}><div><strong>{entry.kind === 'voucher'?'Prepaid credit code':entry.kind === 'refund'?'Refund':entry.kind === 'generate'?'Website generation':entry.kind === 'edit'?'Website edit':entry.kind === 'studio'?'AI Studio chat':entry.kind}</strong><small>{new Date(entry.createdAt).toLocaleString()}</small></div><b className={entry.delta >= 0?'wallet-ledger-positive':'wallet-ledger-negative'}>{entry.delta >= 0?'+':''}{entry.delta}</b></div>)}</div> : <p className="wallet-history-empty">No credit activity yet. Your transactions will appear here.</p>}</div>
     </div></div>}
