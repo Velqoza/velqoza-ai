@@ -95,7 +95,7 @@ const windowLimitFor = (kind:'generate'|'edit'|'studio') => {
 const usageSnapshot = (userId:string) => {
   const nowMs=Date.now(), cutoff=nowMs-aiWindowMs
   const kinds=['studio','edit','generate'] as const
-  const usage={} as Record<(typeof kinds)[number],{used:number;remaining:number;limit:number;nextAvailableAt:string|null}>
+  const usage={} as Record<(typeof kinds)[number],{used:number;remaining:number;limit:number;purchasedRemaining:number;nextAvailableAt:string|null}>
   for (const kind of kinds) {
     const limit=windowLimitFor(kind)
     if(!Number.isSafeInteger(limit)||limit<0||limit>10000) throw new Error('Usage limits are misconfigured.')
