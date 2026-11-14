@@ -181,4 +181,15 @@ CREATE TABLE IF NOT EXISTS studio_memories (
 CREATE INDEX IF NOT EXISTS studio_memories_owner ON studio_memories(user_id,created_at DESC);
 `)
 
+// Sliding 2-hour allowance; old daily AI usage rows are retained for audit.
+db.exec(`
+CREATE TABLE IF NOT EXISTS ai_window_usage (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL CHECK(kind IN ('generate','edit','studio')),
+ created_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ai_window_usage_user_kind_time ON ai_window_usage(user_id,kind,created_at_ms);
+`)
+
 }
