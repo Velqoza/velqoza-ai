@@ -153,7 +153,8 @@ function publicAiError(error:unknown) {
 }
 const generateBody = z.object({
   prompt: z.string().trim().min(8).max(8000),
-  category: z.string().min(1).max(80), style: z.string().min(1).max(80), colors: z.string().max(160)
+  category: z.string().min(1).max(80), style: z.string().min(1).max(80), colors: z.string().max(160),
+  language:z.enum(['auto','ar','he','en']).default('auto')
 })
 const safeCode = codeSchema.superRefine((code, ctx) => {
   const fileError = validateExtraFiles(code.files)
