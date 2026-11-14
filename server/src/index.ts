@@ -15,7 +15,8 @@ import { generateWebsite, editWebsite, chatWithStudio } from './ai.js'
 import { studioPluginCatalog, runStudioPlugins } from './studioPlugins.js'
 import type { AuthRequest, SiteCode } from './types.js'
 import { validateExtraFiles } from './projectFiles.js'
-import { COSTS, PACKAGES, CUSTOM_LIMITS, CUSTOM_UNIT_PRICES_CENTS, calculateCustomPrice, getCredits, getCreditHistory, chargeCredits, refundCredits, redeemVoucher } from './credits.js'
+import { COSTS, PACKAGES, CUSTOM_LIMITS, CUSTOM_UNIT_PRICES_CENTS, calculateCustomPrice, getCredits, getCreditHistory, chargeAI, refundAI, purchasedQuota, redeemVoucher } from './credits.js'
+import { paypalReady, createCheckout, captureCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection } from './payments.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -102,7 +103,7 @@ const usageSnapshot = (userId:string) => {
       .all(userId,kind,cutoff) as {created_at_ms:number}[]
     const used=timestamps.length, remaining=Math.max(0,limit-used)
     const first=limit>0 && used>=limit ? timestamps[used-limit]?.created_at_ms : undefined
-    usage[kind]={limit,used,remaining,nextAvailableAt:first===undefined?null:new Date(Number(first)+aiWindowMs).toISOString()}
+    usage[kind]={limit,used,remaining,purchasedRemaining:purchasedQuota(userId,kind),nextAvailableAt:first===undefined?null:new Date(Number(first)+aiWindowMs).toISOString()}
   }
   return {windowHours:aiWindowMs/3600000,serverTime:new Date(nowMs).toISOString(),usage}
 }
@@ -115,6 +116,7 @@ const aiBudgetGuard = (kind:'generate'|'edit'|'studio') => (req:AuthRequest,res:
   if (!Number.isSafeInteger(limit) || limit<0 || limit>10000) return res.status(503).json({error:'Usage limits are misconfigured.'})
   if (limit===0) return res.status(429).json({error:'This AI feature is temporarily disabled.'})
   try {
+    if(purchasedQuota(req.userId!,kind)>0)return next()
     const nowMs=Date.now(),cutoff=nowMs-aiWindowMs
     const reservation=db.transaction(()=>{
       // Clean up only this owner's expired entries, avoiding an unbounded table.
@@ -196,7 +198,10 @@ const customSelection=z.object({type:z.literal('custom'),credits:quantity,messag
 })
 const packageSelection=z.object({type:z.literal('package'),packageId:z.enum(['starter','pro','business','agency'])}).strict()
 const packageRequestBody=z.union([packageSelection,customSelection])
-app.get('/api/packages',requireAuth,(_req,res)=>res.json({packages:PACKAGES,customLimits:CUSTOM_LIMITS,unitPricesCents:CUSTOM_UNIT_PRICES_CENTS,checkoutEnabled:false,quotasActive:false,currency:'USD'}))
+const checkoutRequestBody=z.object({requestId:z.string().uuid()}).strict()
+const paypalReturnBody=z.object({orderId:z.string().regex(/^[A-Za-z0-9]{8,32}$/)}).strict()
+
+app.get('/api/packages',requireAuth,(_req,res)=>res.json({packages:PACKAGES,customLimits:CUSTOM_LIMITS,unitPricesCents:CUSTOM_UNIT_PRICES_CENTS,checkoutEnabled:paypalReady(),quotasActive:false,currency:'USD'}))
 app.get('/api/packages/requests',requireAuth,(req:AuthRequest,res)=>{
   const rows=db.prepare('SELECT id,selection_json,status,created_at FROM package_requests WHERE user_id=? ORDER BY created_at DESC LIMIT 25').all(req.userId) as {id:string;selection_json:string;status:string;created_at:string}[]
   res.json({requests:rows.map(r=>({id:r.id,selection:JSON.parse(r.selection_json),status:r.status,createdAt:r.created_at}))})
@@ -216,6 +221,60 @@ app.post('/api/packages/requests',requireAuth,rateLimit({windowMs:60*60_000,limi
   res.status(201).json({request:{id,selection:{...selection,pricing},pricing,status:'pending',createdAt},checkoutEnabled:false,message:'Request saved for review; no payment or credits have been processed.'})
 })
 
+// PayPal SANDBOX checkout only. Quotes are immutable snapshots at order
+// creation; no self-reported price, status or redirect token grants benefits.
+app.post('/api/packages/checkout',requireAuth,rateLimit({windowMs:60*60_000,limit:8,standardHeaders:'draft-7',legacyHeaders:false}),async(req:AuthRequest,res)=>{
+  if(!paypalReady())return res.status(503).json({error:'PayPal Sandbox is not configured for this staging environment.'})
+  const parsed=checkoutRequestBody.safeParse(req.body)
+  if(!parsed.success)return res.status(400).json({error:'Invalid package request.'})
+  const record=db.prepare('SELECT id,user_id,selection_json,status FROM package_requests WHERE id=? AND user_id=?').get(parsed.data.requestId,req.userId)
+    as {id:string;user_id:string;selection_json:string;status:string}|undefined
+  if(!record || record.status!=='pending')return res.status(404).json({error:'An unfulfilled package request is required.'})
+  const selection=JSON.parse(record.selection_json) as PaidSelection
+  const pricing=priceSelection(selection)
+  if(pricing.amountCents<50||pricing.amountCents>1_000_000)return res.status(400).json({error:'Sandbox checkout is limited to $0.50–$10,000. Reduce the custom quantity.'})
+  const origin=(process.env.CLIENT_ORIGIN||'').split(',').map(x=>x.trim()).find(x=>x.startsWith('https://'))
+  if(!origin)return res.status(503).json({error:'Secure checkout return origin is not configured.'})
+  const existing=db.prepare('SELECT id,status,paypal_order_id FROM package_payments WHERE request_id=? AND user_id=?')
+    .get(record.id,req.userId) as {id:string;status:string;paypal_order_id:string|null}|undefined
+  if(existing?.status==='completed')return res.status(409).json({error:'Package already fulfilled.'})
+  const paymentId=existing?.id||randomUUID()
+  if(!existing){
+    db.prepare('INSERT INTO package_payments(id,user_id,request_id,amount_cents,currency,selection_json,status,created_at) VALUES(?,?,?,?,?,?,?,?)')
+      .run(paymentId,req.userId,record.id,pricing.amountCents,'USD',JSON.stringify(selection),'creating',now())
+  }
+  try {
+    const order=await createCheckout(paymentId,pricing.amountCents,selection.type==='custom'?'VELQOZA AI Custom':('VELQOZA AI '+selection.packageId),origin.replace(/\/$/,''))
+    if(existing?.paypal_order_id && existing.paypal_order_id!==order.orderId)throw new Error('Payment order mismatch.')
+    db.prepare("UPDATE package_payments SET paypal_order_id=?,status='created' WHERE id=? AND status IN ('creating','created')")
+      .run(order.orderId,paymentId)
+    res.json({orderId:order.orderId,approvalUrl:order.approvalUrl,sandbox:true})
+  }catch(error){
+    console.error('Sandbox PayPal order creation failed',error)
+    res.status(502).json({error:'Could not create sandbox checkout. Retry from the package request.'})
+  }
+})
+app.post('/api/packages/checkout/capture',requireAuth,rateLimit({windowMs:60*60_000,limit:8,standardHeaders:'draft-7',legacyHeaders:false}),async(req:AuthRequest,res)=>{
+  if(!paypalReady())return res.status(503).json({error:'Sandbox checkout unavailable.'})
+  const parsed=paypalReturnBody.safeParse(req.body)
+  if(!parsed.success)return res.status(400).json({error:'Invalid PayPal return information.'})
+  const payment=db.prepare('SELECT id,status,amount_cents,currency FROM package_payments WHERE user_id=? AND paypal_order_id=?')
+    .get(req.userId,parsed.data.orderId) as {id:string;status:string;amount_cents:number;currency:string}|undefined
+  if(!payment)return res.status(404).json({error:'Payment is not associated with this account.'})
+  if(payment.status==='completed')return res.json({ok:true,alreadyApplied:true,balance:getCredits(req.userId!)})
+  if(payment.status!=='created'||payment.currency!=='USD')return res.status(409).json({error:'Payment is not ready for capture.'})
+  try{
+    const order=await captureCheckout(parsed.data.orderId,payment.id)
+    const captureId=verifiedCapture(order,payment.id,payment.amount_cents)
+    if(!captureId)return res.status(409).json({error:'Payment is not completed or the captured amount does not match. Nothing was added.'})
+    const result=fulfillVerifiedPayment(payment.id,captureId)
+    res.json({ok:true,alreadyApplied:result.alreadyApplied,balance:getCredits(req.userId!)})
+  }catch(error){
+    console.error('Sandbox capture/reconciliation failed',error)
+    res.status(502).json({error:'Payment confirmation could not be completed. Your credits have not been updated; retry confirmation or contact support.'})
+  }
+})
+
 app.get('/api/credits',requireAuth,(req:AuthRequest,res) => {
   res.json({balance:getCredits(req.userId!), costs:COSTS, packages:PACKAGES,customLimits:CUSTOM_LIMITS, purchasesEnabled:false, ledger:getCreditHistory(req.userId!)})
 })
@@ -231,7 +290,7 @@ app.post('/api/credits/redeem', requireAuth, rateLimit({windowMs:15*60_000,limit
   } catch(error) {console.error('Credit redemption failed',error);return res.status(503).json({error:'Could not redeem this code right now.'})}
 })
 function reserveOrReject(req:AuthRequest,res:express.Response,kind:keyof typeof COSTS): string|null {
-  const ref=chargeCredits(req.userId!,kind)
+  const ref=chargeAI(req.userId!,kind)
   if(!ref) res.status(402).json({error:`Not enough Credits. ${kind} costs ${COSTS[kind]} Credits.`, required:COSTS[kind], balance:getCredits(req.userId!)})
   return ref
 }
@@ -406,7 +465,7 @@ app.post('/api/ai/generate',requireAuth, singleFlight('generate'), aiBudgetGuard
   const creditRef=reserveOrReject(req as AuthRequest,res,'generate')
   if (!creditRef) return
   try { const code = await generateWebsite(parsed.data); res.json({ code, creditsRemaining:getCredits((req as AuthRequest).userId!) }) }
-  catch(error) { refundCredits((req as AuthRequest).userId!,creditRef); console.error('Generation error',error); res.status(502).json({ error: publicAiError(error) }) }
+  catch(error) { refundAI((req as AuthRequest).userId!,creditRef); console.error('Generation error',error); res.status(502).json({ error: publicAiError(error) }) }
 })
 app.post('/api/ai/edit',requireAuth, singleFlight('edit'), aiBudgetGuard('edit'), async (req,res) => {
   const parsed = editBody.safeParse(req.body)
@@ -414,7 +473,7 @@ app.post('/api/ai/edit',requireAuth, singleFlight('edit'), aiBudgetGuard('edit')
   const creditRef=reserveOrReject(req as AuthRequest,res,'edit')
   if (!creditRef) return
   try { const code = await editWebsite(parsed.data.instruction,parsed.data.code); res.json({ code, creditsRemaining:getCredits((req as AuthRequest).userId!) }) }
-  catch(error) { refundCredits((req as AuthRequest).userId!,creditRef); console.error('Edit error',error); res.status(502).json({ error: publicAiError(error) }) }
+  catch(error) { refundAI((req as AuthRequest).userId!,creditRef); console.error('Edit error',error); res.status(502).json({ error: publicAiError(error) }) }
 })
 
 
@@ -528,7 +587,7 @@ app.post('/api/studio/threads/:id/messages',requireAuth, singleFlight('studio'),
     // Memory extraction must never invalidate a successful chat response.
     try {rememberStudioFact(req.userId!,message)} catch(error){console.warn('Automatic memory extraction skipped',error)}
     res.json({reply,pluginReports:reports})
-  } catch(e) {refundCredits(req.userId!,creditRef);console.error('Studio AI failed',e);res.status(502).json({error:publicAiError(e)})}
+  } catch(e) {refundAI(req.userId!,creditRef);console.error('Studio AI failed',e);res.status(502).json({error:publicAiError(e)})}
 })
 
 app.get('/api/projects',requireAuth,(req:AuthRequest,res) => {
