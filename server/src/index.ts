@@ -846,7 +846,16 @@ const servePublishedBySlug=(req:express.Request,res:express.Response,slug:string
   const css='<link rel="stylesheet" href="styles.css">'
   const js='<script src="script.js"></script>'
   const hasFullDocument=/<!doctype\s+html|<html[\s>]/i.test(html)
-  let document=hasFullDocument ? html : `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${code.title.replace(/[<>&]/g,'')}</title></head><body>${html}</body></html>`
+  const isHebrew=/[\u0590-\u05FF]/.test(html) || /[\u0590-\u05FF]/.test(code.title)
+  const isArabic=/[\u0600-\u06FF]/.test(html) || /[\u0600-\u06FF]/.test(code.title)
+  const pageLang=isHebrew?'he':isArabic?'ar':'en'
+  const pageDir=(isHebrew||isArabic)?'rtl':'ltr'
+  let document=hasFullDocument ? html : `<!doctype html><html lang="${pageLang}" dir="${pageDir}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${code.title.replace(/[<>&]/g,'')}</title></head><body>${html}</body></html>`
+  // Respect explicit lang/dir attributes on full documents; infer otherwise.
+  if(hasFullDocument && !/<html[^>]*\blang=/i.test(document))
+    document=document.replace(/<html([\s>])/i,`<html lang="${pageLang}"$1`)
+  if(hasFullDocument && !/<html[^>]*\bdir=/i.test(document))
+    document=document.replace(/<html([\s>])/i,`<html dir="${pageDir}"$1`)
   document=/<\/head>/i.test(document)?document.replace(/<\/head>/i,css+'</head>'):css+document
   document=/<\/body>/i.test(document)?document.replace(/<\/body>/i,js+'</body>'):document+js
   res.setHeader('Content-Security-Policy',csp)
