@@ -177,7 +177,12 @@ const genericRecovery = {message:'If the address is eligible, we have sent an em
 // Readiness must verify the backing store; otherwise Render may mark a broken database deployment healthy.
 app.get('/api/health', (_req,res) => {
   try {
-    db.prepare('SELECT 1 AS available').get()
+    // A healthy connection is not enough: verify the required AI and payment
+    // tables exist before reporting this deployment as ready.
+    db.prepare('SELECT id FROM users LIMIT 0').all()
+    db.prepare('SELECT id FROM projects LIMIT 0').all()
+    db.prepare('SELECT id FROM package_payments LIMIT 0').all()
+    db.prepare('SELECT id FROM payment_webhook_events LIMIT 0').all()
     res.json({ok:true, database:'ready', aiConfigured:Boolean(process.env.OPENAI_API_KEY)})
   } catch (error) {
     console.error('Database health check failed', error)
