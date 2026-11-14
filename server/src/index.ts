@@ -15,7 +15,7 @@ import { generateWebsite, editWebsite, chatWithStudio } from './ai.js'
 import { studioPluginCatalog, runStudioPlugins } from './studioPlugins.js'
 import type { AuthRequest, SiteCode } from './types.js'
 import { validateExtraFiles } from './projectFiles.js'
-import { COSTS, PACKAGES, getCredits, getCreditHistory, chargeCredits, refundCredits, redeemVoucher } from './credits.js'
+import { COSTS, PACKAGES, CUSTOM_LIMITS, getCredits, getCreditHistory, chargeCredits, refundCredits, redeemVoucher } from './credits.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -185,8 +185,36 @@ app.get('/api/health', (_req,res) => {
 
 // Read-only wallet and price preview. No checkout/credit top-up API is exposed
 // until a real payment provider has signed webhook verification and idempotency.
+// Read-only catalog and server-validated quote requests. This is NOT checkout:
+// submitting a request grants zero credits and zero AI usage entitlement.
+const quantity=z.number().int().min(0).max(1_000_000)
+const customSelection=z.object({type:z.literal('custom'),credits:quantity,messages:quantity,edits:quantity,generations:quantity}).strict().superRefine((v,ctx)=>{
+  for(const [name,min] of [['credits',10],['messages',1],['edits',1],['generations',1]] as const){
+    if(v[name]>0 && v[name]<min)ctx.addIssue({code:'custom',path:[name],message:`Minimum ${name} is ${min}.`})
+  }
+  if(v.credits+v.messages+v.edits+v.generations===0)ctx.addIssue({code:'custom',message:'Choose at least one item.'})
+})
+const packageSelection=z.object({type:z.literal('package'),packageId:z.enum(['starter','pro','business','agency'])}).strict()
+const packageRequestBody=z.discriminatedUnion('type',[packageSelection,customSelection])
+app.get('/api/packages',requireAuth,(_req,res)=>res.json({packages:PACKAGES,customLimits:CUSTOM_LIMITS,checkoutEnabled:false,quotasActive:false,currency:'USD'}))
+app.get('/api/packages/requests',requireAuth,(req:AuthRequest,res)=>{
+  const rows=db.prepare('SELECT id,selection_json,status,created_at FROM package_requests WHERE user_id=? ORDER BY created_at DESC LIMIT 25').all(req.userId) as {id:string;selection_json:string;status:string;created_at:string}[]
+  res.json({requests:rows.map(r=>({id:r.id,selection:JSON.parse(r.selection_json),status:r.status,createdAt:r.created_at}))})
+})
+app.post('/api/packages/requests',requireAuth,rateLimit({windowMs:60*60_000,limit:5,standardHeaders:'draft-7',legacyHeaders:false}),(req:AuthRequest,res)=>{
+  const parsed=packageRequestBody.safeParse(req.body)
+  if(!parsed.success)return res.status(400).json({error:'Invalid package quantities. Credits must be 10–1,000,000; other selected items 1–1,000,000.'})
+  const selection=parsed.data
+  const current=(db.prepare('SELECT COUNT(*) AS n FROM package_requests WHERE user_id=? AND status=?').get(req.userId,'pending') as {n:number}).n
+  if(current>=5)return res.status(429).json({error:'You already have five pending requests.'})
+  const id=randomUUID(),createdAt=now()
+  db.prepare('INSERT INTO package_requests(id,user_id,selection_json,status,created_at) VALUES(?,?,?,?,?)')
+    .run(id,req.userId,JSON.stringify(selection),'pending',createdAt)
+  res.status(201).json({request:{id,selection,status:'pending',createdAt},checkoutEnabled:false,message:'Request saved for review; no payment or credits have been processed.'})
+})
+
 app.get('/api/credits',requireAuth,(req:AuthRequest,res) => {
-  res.json({balance:getCredits(req.userId!), costs:COSTS, packages:PACKAGES, purchasesEnabled:false, ledger:getCreditHistory(req.userId!)})
+  res.json({balance:getCredits(req.userId!), costs:COSTS, packages:PACKAGES,customLimits:CUSTOM_LIMITS, purchasesEnabled:false, ledger:getCreditHistory(req.userId!)})
 })
 // Prepaid code redemption is only a wallet credit, never proof of payment.
 // Only a server-side admin command can mint voucher records.
