@@ -118,6 +118,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS admin_audit (
 );
 CREATE INDEX IF NOT EXISTS admin_audit_created ON admin_audit(created_at DESC);`)
 
+db.exec(`CREATE TABLE IF NOT EXISTS site_announcements (id TEXT PRIMARY KEY,title TEXT NOT NULL,body TEXT NOT NULL,created_at TEXT NOT NULL);`)
 // Only accounts created after this migration require verification. Existing accounts are
 // grandfathered to avoid locking out the owner's projects and prepaid balances.
 const verificationColumns=db.prepare('PRAGMA table_info(users)').all() as {name:string}[]
