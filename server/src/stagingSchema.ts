@@ -70,4 +70,15 @@ CREATE TABLE IF NOT EXISTS velqoza_ai.email_auth_tokens (
   token_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS email_auth_tokens_user_purpose ON velqoza_ai.email_auth_tokens(user_id,purpose);
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.published_sites (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL UNIQUE REFERENCES velqoza_ai.projects(id) ON DELETE CASCADE,
+  slug TEXT NOT NULL UNIQUE,
+  code_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS published_sites_user ON velqoza_ai.published_sites(user_id);
 `;
