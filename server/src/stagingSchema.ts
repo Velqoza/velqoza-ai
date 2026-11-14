@@ -107,4 +107,12 @@ CREATE TABLE IF NOT EXISTS velqoza_ai.studio_memories (
  created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS studio_memories_owner ON velqoza_ai.studio_memories(user_id,created_at DESC);
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.ai_window_usage (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL CHECK(kind IN ('generate','edit','studio')),
+ created_at_ms BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ai_window_usage_user_kind_time ON velqoza_ai.ai_window_usage(user_id,kind,created_at_ms);
 `;
