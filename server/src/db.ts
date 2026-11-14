@@ -228,4 +228,15 @@ CREATE TABLE IF NOT EXISTS package_payments (
 CREATE INDEX IF NOT EXISTS package_payments_owner ON package_payments(user_id,created_at DESC);
 `)
 
+// Receipt lets a failed AI request restore purchased quota only once.
+db.exec(`
+CREATE TABLE IF NOT EXISTS quota_reservations (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL,
+ refunded INTEGER NOT NULL DEFAULT 0,
+ created_at TEXT NOT NULL
+);
+`)
+
 }
