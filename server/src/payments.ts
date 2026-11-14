@@ -44,6 +44,69 @@ async function paypalRequest(method:'POST'|'GET',route:string,body?:unknown,requ
   }
   return response.json() as Promise<PayPalOrder>
 }
+export type PayPalWebhookEvent={id:string;event_type:string;resource?:{
+  id?:string;capture_id?:string;amount?:{value?:string;currency_code?:string};
+  disputed_transactions?:Array<{seller_transaction_id?:string;buyer_transaction_id?:string}>
+}}
+export type PayPalWebhookHeaders={
+  transmissionId:string;transmissionTime:string;certUrl:string;
+  authAlgo:string;transmissionSig:string
+}
+// PayPal's verify-webhook-signature endpoint validates the transmission using
+// the registered, environment-specific webhook ID. No event is trusted unless
+// PayPal replies with an explicit SUCCESS.
+export async function verifyPayPalWebhook(event:PayPalWebhookEvent,headers:PayPalWebhookHeaders){
+  const webhookId=process.env.PAYPAL_WEBHOOK_ID?.trim()
+  if(!paypalReady()||!webhookId)throw new Error('PayPal webhook verification is not configured.')
+  if(!/^[a-zA-Z0-9]{6,50}$/.test(webhookId))throw new Error('Invalid configured webhook ID.')
+  if(!headers.transmissionId||!headers.transmissionTime||!headers.transmissionSig||
+     !headers.certUrl||!headers.authAlgo)return false
+  if([headers.transmissionId,headers.transmissionTime,headers.certUrl,headers.authAlgo,headers.transmissionSig].some(v=>v.length>1024))return false
+  const response=await paypalRequest('POST','/v1/notifications/verify-webhook-signature',{
+    auth_algo:headers.authAlgo,
+    cert_url:headers.certUrl,
+    transmission_id:headers.transmissionId,
+    transmission_sig:headers.transmissionSig,
+    transmission_time:headers.transmissionTime,
+    webhook_id:webhookId,
+    webhook_event:event
+  }) as PayPalOrder & {verification_status?:string}
+  return response.verification_status==='SUCCESS'
+}
+export function webhookCaptureId(event:PayPalWebhookEvent):string|null {
+  if(event.event_type==='PAYMENT.CAPTURE.REFUNDED' ||
+     event.event_type==='PAYMENT.CAPTURE.REVERSED'){
+    return event.resource?.capture_id||null
+  }
+  if(event.event_type.startsWith('CUSTOMER.DISPUTE.')){
+    const candidates=event.resource?.disputed_transactions||[]
+    return candidates.length===1?candidates[0]?.seller_transaction_id||null:null
+  }
+  return null
+}
+export function recordVerifiedPaymentEvent(event:PayPalWebhookEvent):{recorded:boolean;flagged:boolean}{
+  if(!/^[a-zA-Z0-9_-]{8,128}$/.test(event.id)||!/^[-A-Z.]{5,80}$/.test(event.event_type))
+    throw new Error('Invalid verified payment event.')
+  const captureId=webhookCaptureId(event)
+  return db.transaction(()=>{
+    const match=captureId?
+      db.prepare('SELECT id FROM package_payments WHERE paypal_capture_id=?').get(captureId) as {id:string}|undefined:undefined
+    const receipt=db.prepare('INSERT OR IGNORE INTO payment_webhook_events(id,event_type,capture_id,payment_id,received_at) VALUES(?,?,?,?,?)')
+      .run(event.id,event.event_type,captureId,match?.id||null,new Date().toISOString())
+    if(!receipt.changes)return {recorded:false,flagged:false}
+    if(match && (
+      event.event_type==='PAYMENT.CAPTURE.REFUNDED' ||
+      event.event_type==='PAYMENT.CAPTURE.REVERSED' ||
+      event.event_type.startsWith('CUSTOMER.DISPUTE.')
+    )){
+      // Quotas may already be consumed; never forcibly create a negative balance.
+      // Mark for staff review so customer access/settlement can be handled safely.
+      db.prepare("UPDATE package_payments SET status='review_required' WHERE id=? AND status='completed'").run(match.id)
+      return {recorded:true,flagged:true}
+    }
+    return {recorded:true,flagged:false}
+  })()
+}
 export type PaidSelection =
   | {type:'package';packageId:'starter'|'pro'|'business'|'agency';pricing?:unknown}
   | ({type:'custom'} & CustomQuantity & {pricing?:unknown})
