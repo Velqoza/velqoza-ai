@@ -148,6 +148,8 @@ export default function App() {
   const [mediaAssets,setMediaAssets]=useState<{id:string;name:string;mime:string;size:number;url:string;createdAt:string}[]>([])
   const [mediaBusy,setMediaBusy]=useState(false)
   const [chatDragActive,setChatDragActive]=useState(false)
+  const [builderDragActive,setBuilderDragActive]=useState(false)
+  const builderDragDepth=useRef(0)
   const chatDragDepth=useRef(0)
   const [mediaError,setMediaError]=useState('')
   const [publishOpen, setPublishOpen] = useState(false)
@@ -370,6 +372,7 @@ export default function App() {
   const flash = (message: string) => { setNotice(message); window.setTimeout(() => setNotice(''), 3800) }
 
   async function generate() {
+    if (mediaBusy) { flash('Finish uploading your attachment before generating.'); return }
     if (!prompt.trim()) { flash('Describe the website you want to create first.'); return }
     setBusy(true); setTab('editor'); setMessages([])
     try {
@@ -622,7 +625,11 @@ export default function App() {
     try {const result=await api.mediaAssets();setMediaAssets(result.assets)}
     catch(error){setMediaError(error instanceof Error?error.message:'Could not load media.')}
   }
-  async function uploadMediaFile(file:File|undefined, insertIntoChat=false) {
+  async function uploadMediaFile(file:File|undefined, destination:'library'|'edit'|'builder'='library') {
+    if(destination!=='library' && !user) {
+      setMediaError('Sign in first to upload media. Your prompt will stay here.')
+      setAuthMode('login');setAuthOpen(true);return
+    }
     if(!file)return
     const allowed=new Set(['image/png','image/jpeg','image/webp','image/gif','audio/mpeg','audio/wav','audio/ogg','video/mp4','video/webm'])
     if(!allowed.has(file.type)||file.size>3*1024*1024||!file.size){
@@ -640,11 +647,16 @@ export default function App() {
       if(!dataBase64) throw new Error('The file was empty.')
       const {asset}=await api.uploadMedia({filename:file.name,mime:file.type,dataBase64})
       setMediaAssets(items=>[asset,...items])
-      if(insertIntoChat) {
+      if(destination==='edit') {
         const snippet='Use the uploaded '+asset.mime+' file at '+window.location.origin+asset.url+' in this website. Preserve the other pages and functionality.'
         setChat(previous=>(previous.trim()?previous.trim()+'\n':'')+snippet)
       }
-      flash(insertIntoChat?'Media attached to your AI request.':'Media uploaded. Use its URL inside your website.')
+      if(destination==='builder') {
+        const snippet='Include the uploaded '+asset.mime+' asset from '+window.location.origin+asset.url+' in the new website. Use the asset URL directly in appropriate HTML/CSS and make the design fit it.'
+        setPrompt(previous=>(previous.trim()?previous.trim()+'\n':'')+snippet)
+        setDraftAvailable(false)
+      }
+      flash(destination==='library'?'Media uploaded. Use its URL inside your website.':'Media attached to your AI request.')
     }catch(error){setMediaError(error instanceof Error?error.message:'Upload failed.')}
     finally {setMediaBusy(false)}
   }
@@ -779,17 +791,25 @@ export default function App() {
         <div className="eyebrow"><span className="live-dot"/> BUILD WITH CREDITS · PAY AS YOU CREATE <span className="eyebrow-line"/></div>
         <h1>Turn your ideas into<br/><span className="gradient-text">websites with AI.</span></h1>
         <p className="hero-sub">Build polished websites with AI, edit by chat, and keep every project in your workspace. Credits are required for AI generation, edits and chat. No recurring subscription.</p>
-        <div className="commercial-banner"><Zap size={15}/> AI WEBSITE GENERATION · 20 CREDITS <span>·</span> EDITS · 8 CREDITS <span>·</span> STUDIO CHAT · 2 CREDITS <a href="#pricing">View credit packs →</a></div><div className="prompt-card">
+        <div className="commercial-banner"><Zap size={15}/> AI WEBSITE GENERATION · 20 CREDITS <span>·</span> EDITS · 8 CREDITS <span>·</span> STUDIO CHAT · 2 CREDITS <a href="#pricing">View credit packs →</a></div><div className="prompt-card" style={{position:'relative',border:builderDragActive?'2px dashed #b59bff':undefined}}
+          onDragEnter={e=>{if(!e.dataTransfer.types.includes('Files'))return;e.preventDefault();builderDragDepth.current++;setBuilderDragActive(true)}}
+          onDragOver={e=>{if(!e.dataTransfer.types.includes('Files'))return;e.preventDefault();e.dataTransfer.dropEffect='copy'}}
+          onDragLeave={e=>{e.preventDefault();builderDragDepth.current=Math.max(0,builderDragDepth.current-1);if(builderDragDepth.current===0)setBuilderDragActive(false)}}
+          onDrop={e=>{e.preventDefault();e.stopPropagation();builderDragDepth.current=0;setBuilderDragActive(false);if(mediaBusy)return;const file=e.dataTransfer.files?.[0];if(file)void uploadMediaFile(file,'builder')}}>
+          {builderDragActive && <div aria-hidden="true" style={{position:'absolute',inset:0,zIndex:5,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(18,12,35,.94)',color:'#f7f3ff',borderRadius:14,pointerEvents:'none',fontWeight:700}}>Drop media to attach to new website prompt</div>}
           <div className="prompt-top"><span className="prompt-label"><WandSparkles size={15}/> START WITH A PROMPT</span><span className="secure-label"><ShieldCheck size={13}/> Credits required</span></div>
           <textarea ref={promptTextareaRef} value={prompt} onChange={e=>{setPrompt(e.target.value);setDraftAvailable(false)}} placeholder="I want a premium website for my creative studio. It should feel bold, minimal, and have a striking hero section..." rows={3}/>
+          <p style={{fontSize:12,opacity:.74,padding:'0 15px 6px'}}>Drag & drop media here or click Attach media. Files up to 3 MB; they upload to your account and their URL is added to this prompt.</p>
+          {mediaError && <p role="alert" style={{fontSize:12,color:'#f4a7a7',padding:'0 15px 8px'}}>{mediaError}</p>}
           {draftAvailable && <div className="prompt-draft-label"><RotateCcw size={13}/> Your last unfinished prompt was restored <button onClick={()=>{setPrompt('');setDraftAvailable(false)}}>Clear</button></div>}
           <div className="prompt-controls">
             <div className="selects">
               <label><LayoutTemplate size={14}/><select value={category} onChange={e=>setCategory(e.target.value)}>{['Business','Portfolio','E-commerce','Restaurant','Blog','Agency','Landing Page','SaaS','Other'].map(x=><option key={x}>{x}</option>)}</select><ChevronDown size={13}/></label>
               <label><Palette size={14}/><select value={style} onChange={e=>setStyle(e.target.value)}>{['Minimal','Modern','Luxury','Futuristic','Creative'].map(x=><option key={x}>{x}</option>)}</select><ChevronDown size={13}/></label>
             </div>
+            <label className="outline-btn" style={{cursor:mediaBusy?'wait':'pointer'}} title="Attach media to your new website prompt"><Plus size={15}/> {mediaBusy?'Uploading…':'Attach media'}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,audio/mpeg,audio/wav,audio/ogg,video/mp4,video/webm" hidden disabled={mediaBusy} onChange={e=>{void uploadMediaFile(e.target.files?.[0],'builder');e.target.value=''}}/></label>
             <label className="outline-btn" style={{cursor:'pointer'}} title="Import existing HTML/CSS/JavaScript website ZIP"><FolderOpen size={15}/> Import ZIP<input type="file" accept=".zip,application/zip" hidden onChange={e=>{void importExistingZip(e.target.files?.[0]);e.target.value=''}}/></label>
-            <button className="generate-btn" onClick={generate} disabled={busy}>{busy?<><LoaderCircle className="spin" size={17}/> Creating...</>:<>Generate website <Sparkles size={16}/></>}</button>
+            <button className="generate-btn" onClick={generate} disabled={busy||mediaBusy}>{busy?<><LoaderCircle className="spin" size={17}/> Creating...</>:<>Generate website <Sparkles size={16}/></>}</button>
           </div>
           <div className="color-row"><span>COLOR DIRECTION</span><input value={colors} onChange={e=>setColors(e.target.value)} aria-label="Color direction"/><span className="color-swatch swatch-purple"/><span className="color-swatch swatch-blue"/><span className="color-swatch swatch-ink"/></div>
         </div>
@@ -851,10 +871,10 @@ export default function App() {
             onDragEnter={e=>{if(!e.dataTransfer.types.includes('Files'))return;e.preventDefault();chatDragDepth.current++;setChatDragActive(true)}}
             onDragOver={e=>{if(!e.dataTransfer.types.includes('Files'))return;e.preventDefault();e.dataTransfer.dropEffect='copy'}}
             onDragLeave={e=>{e.preventDefault();chatDragDepth.current=Math.max(0,chatDragDepth.current-1);if(chatDragDepth.current===0)setChatDragActive(false)}}
-            onDrop={e=>{e.preventDefault();e.stopPropagation();chatDragDepth.current=0;setChatDragActive(false);if(mediaBusy)return;const file=e.dataTransfer.files?.[0];if(file)void uploadMediaFile(file,true)}}>
+            onDrop={e=>{e.preventDefault();e.stopPropagation();chatDragDepth.current=0;setChatDragActive(false);if(mediaBusy)return;const file=e.dataTransfer.files?.[0];if(file)void uploadMediaFile(file,'edit')}}>
             {chatDragActive && <div aria-hidden="true" style={{position:'absolute',inset:0,zIndex:3,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:12,background:'rgba(18,12,35,.93)',color:'#f7f3ff',fontWeight:700,pointerEvents:'none'}}>Drop image, audio or video here</div>}
             <textarea ref={editorInputRef} value={chat} onChange={e=>setChat(e.target.value)} placeholder="Tell me what you'd like to change, or drop media here..." rows={3} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();if(!busy&&!mediaBusy)editSite()}}}/>
-            <div><span>{mediaBusy?'Uploading attachment…':'↵ Enter to send · drag media here'}</span><label title="Attach image, audio or video" style={{display:'inline-flex',alignItems:'center',cursor:mediaBusy?'wait':'pointer',padding:'6px 9px',borderRadius:8}}><Plus size={16}/><input type="file" hidden disabled={mediaBusy} accept="image/png,image/jpeg,image/webp,image/gif,audio/mpeg,audio/wav,audio/ogg,video/mp4,video/webm" onChange={e=>{void uploadMediaFile(e.target.files?.[0],true);e.target.value=''}}/></label><button onClick={editSite} disabled={busy||mediaBusy||!chat.trim()}><Send size={15}/></button></div>
+            <div><span>{mediaBusy?'Uploading attachment…':'↵ Enter to send · drag media here'}</span><label title="Attach image, audio or video" style={{display:'inline-flex',alignItems:'center',cursor:mediaBusy?'wait':'pointer',padding:'6px 9px',borderRadius:8}}><Plus size={16}/><input type="file" hidden disabled={mediaBusy} accept="image/png,image/jpeg,image/webp,image/gif,audio/mpeg,audio/wav,audio/ogg,video/mp4,video/webm" onChange={e=>{void uploadMediaFile(e.target.files?.[0],'edit');e.target.value=''}}/></label><button onClick={editSite} disabled={busy||mediaBusy||!chat.trim()}><Send size={15}/></button></div>
             {mediaError && <p role="alert" style={{fontSize:12,color:'#f4a7a7',padding:'0 9px 8px'}}>{mediaError}</p>}
           </div>
           <div className="assistant-foot"><ShieldCheck size={13}/> Your changes are generated securely through the server.</div>
