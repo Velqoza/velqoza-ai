@@ -2,6 +2,7 @@
 // SQLite API can be migrated without changing its transaction boundaries.
 import { parentPort, workerData } from 'node:worker_threads'
 import pg from 'pg'
+import { stagingSchemaSql } from './stagingSchema.js'
 
 const { Client, types } = pg
 types.setTypeParser(20, (v:string) => Number(v)) // COUNT(*) returns int8
@@ -32,6 +33,10 @@ function rewrite(sql: string): string {
 async function run(op: string, sql?: string, args?: unknown[]) {
   if (!connected) {
     await client.connect()
+    if (process.env.STAGING_INIT_SCHEMA === 'true') {
+      await client.query(stagingSchemaSql)
+      console.log('[VELQOZA] Isolated staging PostgreSQL schema checked.')
+    }
     await client.query('SET search_path TO velqoza_ai, pg_catalog')
     connected = true
   }
