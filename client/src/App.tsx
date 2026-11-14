@@ -71,6 +71,13 @@ export default function App() {
   const [usageNow,setUsageNow] = useState(Date.now())
   const [usageError,setUsageError] = useState('')
   const [walletOpen, setWalletOpen] = useState(false)
+  const [packageCatalog,setPackageCatalog]=useState<Awaited<ReturnType<typeof api.packagesCatalog>>|null>(null)
+  const [packageRequestHistory,setPackageRequestHistory]=useState<{id:string;selection:unknown;status:string;createdAt:string}[]>([])
+  const [packageTab,setPackageTab]=useState<'bundles'|'custom'>('bundles')
+  const [packageQuantities,setPackageQuantities]=useState({credits:10,messages:0,edits:0,generations:0})
+  const [packageRequestBusy,setPackageRequestBusy]=useState(false)
+  const [packageFeedback,setPackageFeedback]=useState('')
+
   const [voucherCode,setVoucherCode] = useState('')
   const [voucherBusy,setVoucherBusy] = useState(false)
   const [voucherFeedback,setVoucherFeedback] = useState('')
@@ -109,8 +116,21 @@ export default function App() {
     void refreshWallet()
   }, [user])
   const showWallet=async () => {
-    setWalletOpen(true)
-    try {const wallet=await api.credits();setWalletBalance(wallet.balance);setWalletInfo(wallet)} catch(e) {flash(e instanceof Error?e.message:'Could not load wallet')}
+    setWalletOpen(true);setPackageFeedback('')
+    try {
+      const [wallet,catalog,requests]=await Promise.all([api.credits(),api.packagesCatalog(),api.packageRequests()])
+      setWalletBalance(wallet.balance);setWalletInfo(wallet);setPackageCatalog(catalog);setPackageRequestHistory(requests.requests)
+    } catch(e){setPackageFeedback(e instanceof Error?e.message:'Could not load package options.')}
+  }
+  const submitPackageRequest=async(selection:{type:'package';packageId:string}|{type:'custom';credits:number;messages:number;edits:number;generations:number})=>{
+    if(packageRequestBusy)return
+    setPackageRequestBusy(true);setPackageFeedback('')
+    try {
+      const result=await api.requestPackage(selection)
+      setPackageRequestHistory(previous=>[{...result.request,selection},...previous])
+      setPackageFeedback('Request saved for review. No payment was taken and no credits or quotas have been activated.')
+    }catch(error){setPackageFeedback(error instanceof Error?error.message:'Could not save request.')}
+    finally{setPackageRequestBusy(false)}
   }
   const redeemCode=async()=>{
     if(!voucherCode.trim() || voucherBusy) return
@@ -976,7 +996,36 @@ export default function App() {
     {adminError && <p className="admin-error" role="alert">{adminError}</p>}<div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Account</th><th>Projects</th><th>Credits</th><th>Status</th><th>Owner actions</th></tr></thead><tbody>{(adminData?.users||[]).filter(u=>u.email.toLowerCase().includes(adminSearch.toLowerCase())).map(u=><tr key={u.id}><td><strong>{u.email}</strong><small>{new Date(u.createdAt).toLocaleDateString()}</small></td><td>{u.projects}</td><td>{u.credits}</td><td>{u.isBanned?'Suspended':'Active'}</td><td><div className="admin-actions"><button disabled={adminBusy} onClick={()=>adjustCredits(u.id,u.email,1)}>+ Credits</button><button disabled={adminBusy} onClick={()=>adjustCredits(u.id,u.email,-1)}>− Credits</button>{u.id!==user.id && <><button disabled={adminBusy} onClick={()=>{if(window.confirm(`${u.isBanned?'Restore':'Suspend'} ${u.email}?`))void runAdmin(()=>api.adminBan(u.id,!u.isBanned))}}>{u.isBanned?'Unban':'Ban'}</button><button className="admin-danger" disabled={adminBusy} onClick={()=>{if(window.prompt(`Permanently delete ${u.email} and all projects? Type DELETE ACCOUNT`) !== 'DELETE ACCOUNT')return;void runAdmin(()=>api.adminDelete(u.id))}}>Delete</button></>}</div></td></tr>)}</tbody></table></div>
     <div className="admin-audit"><h3>Recent owner actions</h3>{adminAudit.length===0?<p>No actions yet.</p>:adminAudit.slice(0,15).map((a,i)=><p key={i}><strong>{a.action}</strong> · {new Date(a.createdAt).toLocaleString()} · {a.detail}</p>)}</div></section></div>}
     {walletOpen && <div className="modal-backdrop" onClick={()=>setWalletOpen(false)}><div className="projects-modal" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><span className="section-kicker">VELQOZA WALLET</span><h2>{walletInfo?.balance ?? '—'} Credits</h2></div><button className="icon-btn" onClick={()=>setWalletOpen(false)}><X/></button></div><p>Credits power your AI builds and edits. Online checkout is not available yet; prepaid codes can be redeemed here after you receive one from VELQOZA support.</p>
-    <div className="voucher-box"><label htmlFor="voucher-code">Redeem prepaid code</label><div className="voucher-row"><input id="voucher-code" value={voucherCode} onChange={e=>setVoucherCode(e.target.value)} placeholder="VQ-..." autoComplete="off" maxLength={100}/><button disabled={voucherBusy||!voucherCode.trim()} onClick={redeemCode}>{voucherBusy?'Checking...':'Redeem'}</button></div>{voucherFeedback && <p role="status" className="voucher-feedback">{voucherFeedback}</p>}<small>Never send your password or API keys to purchase credits. A code works only once.</small></div><div className="credit-packages">{walletInfo?.packages.map(p=><div key={p.id} className="credit-package"><strong>{p.label}</strong><span>{p.credits} Credits</span><b>${(p.usdCents/100).toFixed(0)}</b><small>Coming soon · no payment taken</small></div>)}</div><p className="credit-prices">AI charges: Generate {walletInfo?.costs.generate ?? '—'} · Edit {walletInfo?.costs.edit ?? '—'} · Chat {walletInfo?.costs.studio ?? '—'} Credits. Prices are provisional.</p>
+    <div className="voucher-box"><label htmlFor="voucher-code">Redeem prepaid code</label><div className="voucher-row"><input id="voucher-code" value={voucherCode} onChange={e=>setVoucherCode(e.target.value)} placeholder="VQ-..." autoComplete="off" maxLength={100}/><button disabled={voucherBusy||!voucherCode.trim()} onClick={redeemCode}>{voucherBusy?'Checking...':'Redeem'}</button></div>{voucherFeedback && <p role="status" className="voucher-feedback">{voucherFeedback}</p>}<small>Never send your password or API keys to purchase credits. A code works only once.</small></div><div style={{display:'flex',gap:8,margin:'20px 0 12px',flexWrap:'wrap'}}>
+      <button className="outline-btn" onClick={()=>setPackageTab('bundles')} aria-pressed={packageTab==='bundles'} style={{borderColor:packageTab==='bundles'?'#a68aff':undefined}}>Packages</button>
+      <button className="outline-btn" onClick={()=>setPackageTab('custom')} aria-pressed={packageTab==='custom'} style={{borderColor:packageTab==='custom'?'#a68aff':undefined}}>Custom Builder</button>
+    </div>
+    {packageTab==='bundles'?
+      <div className="credit-packages">{packageCatalog?.packages.map(p=><div key={p.id} className="credit-package" style={{display:'flex',flexDirection:'column',gap:8}}>
+        <strong>{p.label}</strong><span>{p.credits.toLocaleString()} Credits</span><span>{p.messages.toLocaleString()} AI Studio messages</span><span>{p.edits.toLocaleString()} edits</span><span>{p.generations.toLocaleString()} generations</span><b>${(p.usdCents/100).toFixed(0)} <small>illustrative price</small></b>
+        <button className="outline-btn" disabled={packageRequestBusy} onClick={()=>void submitPackageRequest({type:'package',packageId:p.id})}>Request this package</button>
+      </div>)}</div>:
+      <section style={{border:'1px solid rgba(160,135,220,.25)',borderRadius:14,padding:16,display:'grid',gap:13}}>
+        <h3 style={{margin:0}}>Build your own package</h3>
+        <p style={{fontSize:13,opacity:.8,margin:0}}>Choose only what you need. Credits: 10–1,000,000 when selected. Messages, edits, and generations: 1–1,000,000 each when selected. Turn an item off to exclude it.</p>
+        {(['credits','messages','edits','generations'] as const).map(kind=><div key={kind} style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',justifyContent:'space-between'}}>
+          <label style={{display:'flex',alignItems:'center',gap:9,textTransform:'capitalize',minWidth:155}}>
+            <input type="checkbox" checked={packageQuantities[kind]>0} onChange={e=>setPackageQuantities(current=>({...current,[kind]:e.target.checked?(kind==='credits'?10:1):0}))}/>{kind}
+          </label>
+          <input type="number" inputMode="numeric" min={kind==='credits'?10:1} max={1000000} step={1} disabled={packageQuantities[kind]===0}
+            aria-label={kind+' quantity'} value={packageQuantities[kind]||''} placeholder="Not included"
+            onChange={e=>{const number=e.target.value===''?0:Number(e.target.value);setPackageQuantities(current=>({...current,[kind]:Number.isFinite(number)?Math.min(1000000,Math.max(0,Math.floor(number))):0}))}}
+            onBlur={()=>setPackageQuantities(current=>({...current,[kind]:current[kind]===0?0:Math.max(kind==='credits'?10:1,current[kind])}))}
+            style={{width:155,background:'#211a2c',border:'1px solid #786098',borderRadius:8,padding:9,color:'#fff'}}/>
+        </div>)}
+        <div style={{fontSize:14}}>Price: <strong>Custom quote required</strong></div>
+        <button className="generate-btn" disabled={packageRequestBusy||Object.values(packageQuantities).every(v=>v===0)||packageQuantities.credits>0&&packageQuantities.credits<10} onClick={()=>void submitPackageRequest({type:'custom',...packageQuantities})}>
+          {packageRequestBusy?'Saving request…':'Request custom quote'}
+        </button>
+      </section>}
+    {packageFeedback&&<p role="status" style={{padding:10,border:'1px solid rgba(170,145,210,.3)',borderRadius:8}}>{packageFeedback}</p>}
+    <p className="credit-prices">Package quantities and listed bundle prices are proposals, not active entitlements. Requests do not make payments or change your usage limits. Final prices and renewal periods are pending confirmation. Current AI charges: Generate {walletInfo?.costs.generate ?? '—'} · Edit {walletInfo?.costs.edit ?? '—'} · Chat {walletInfo?.costs.studio ?? '—'} Credits per request.</p>
+    {packageRequestHistory.length>0&&<div style={{marginTop:16}}><strong>Your package requests</strong>{packageRequestHistory.slice(0,5).map(request=><p key={request.id} style={{fontSize:12,margin:'6px 0'}}>#{request.id.slice(0,8)} · {request.status} · {new Date(request.createdAt).toLocaleString()}</p>)}</div>}
     <div className="wallet-history"><div className="wallet-history-head"><strong>Recent activity</strong><button type="button" onClick={()=>void refreshWallet()} title="Refresh balance and activity"><RotateCcw size={14}/> Refresh</button></div>
     {walletInfo?.ledger?.length ? <div className="wallet-ledger" role="list">{walletInfo.ledger.slice(0,12).map(entry=><div className="wallet-ledger-row" role="listitem" key={entry.id}><div><strong>{entry.kind === 'voucher'?'Prepaid credit code':entry.kind === 'refund'?'Refund':entry.kind === 'generate'?'Website generation':entry.kind === 'edit'?'Website edit':entry.kind === 'studio'?'AI Studio chat':entry.kind}</strong><small>{new Date(entry.createdAt).toLocaleString()}</small></div><b className={entry.delta >= 0?'wallet-ledger-positive':'wallet-ledger-negative'}>{entry.delta >= 0?'+':''}{entry.delta}</b></div>)}</div> : <p className="wallet-history-empty">No credit activity yet. Your transactions will appear here.</p>}</div>
     </div></div>}
