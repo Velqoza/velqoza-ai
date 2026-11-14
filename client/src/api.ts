@@ -47,6 +47,7 @@ export const api = {
   adminCredits: (id:string,delta:number,reason:string) => request<{ok:true;balance:number}>(`/admin/users/${id}/credits`,{method:'POST',body:JSON.stringify({delta,reason})}),
   adminBan: (id:string,banned:boolean) => request<{ok:true}>(`/admin/users/${id}/ban`,{method:'POST',body:JSON.stringify({banned})}),
   adminDelete: (id:string) => request<{ok:true}>(`/admin/users/${id}`,{method:'DELETE',body:JSON.stringify({confirm:'DELETE ACCOUNT'})}),
+  usage: () => request<{windowHours:number;serverTime:string;usage:Record<'studio'|'edit'|'generate',{used:number;remaining:number;limit:number;nextAvailableAt:string|null}>}>('/usage'),
   credits: () => request<{balance:number;costs:{generate:number;edit:number;studio:number};packages:{id:string;label:string;usdCents:number;credits:number}[];purchasesEnabled:boolean;ledger:{id:string;delta:number;kind:string;createdAt:string}[]}>('/credits'),
   redeemCredits: (code:string) => request<{ok:true;balance:number;added:number}>('/credits/redeem',{method:'POST',body:JSON.stringify({code})}),
   setToken: (value: string | null) => value ? localStorage.setItem(TOKEN_KEY, value) : localStorage.removeItem(TOKEN_KEY),
