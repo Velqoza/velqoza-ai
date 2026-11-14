@@ -146,3 +146,16 @@
 .app-shell[dir="rtl"] .studio-bubble-text,.app-shell[dir="rtl"] .studio-prose{unicode-bidi:plaintext;text-align:start}
 .app-shell[dir="rtl"] .studio-code-block,.app-shell[dir="rtl"] pre,.app-shell[dir="rtl"] code{direction:ltr;text-align:left}
 @media(max-width:640px){.language-switcher{padding:6px}.language-switcher select{max-width:70px}.top-actions{gap:7px}}
+
+/* Publish dialog must stay usable above iOS/Android browser toolbars. */
+.publish-modal{width:min(600px,100%);max-height:min(90dvh,850px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding-bottom:max(18px,env(safe-area-inset-bottom))}
+.publish-modal .publish-actions{position:sticky;bottom:calc(-1 * max(18px,env(safe-area-inset-bottom)));z-index:4;background:#121118;padding:14px 4px max(16px,env(safe-area-inset-bottom));border-top:1px solid rgba(255,255,255,.14)}
+.publish-modal .publish-actions button{min-height:44px;touch-action:manipulation}
+.publish-modal input[type="checkbox"],.publish-modal input[type="radio"]{min-width:17px;min-height:17px;flex-shrink:0}
+.publish-modal a{overflow-wrap:anywhere}
+@media(max-width:640px){
+  .modal-backdrop:has(.publish-modal){padding:0;align-items:end}
+  .publish-modal{width:100%;height:auto;max-height:94dvh;border-radius:18px 18px 0 0;padding:18px 16px max(18px,env(safe-area-inset-bottom))}
+  .publish-modal .publish-actions{margin-inline:-5px;padding-inline:5px}
+  .publish-modal .publish-actions .download-btn{flex:1 1 190px}
+}
