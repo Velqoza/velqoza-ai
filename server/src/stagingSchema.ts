@@ -115,4 +115,13 @@ CREATE TABLE IF NOT EXISTS velqoza_ai.ai_window_usage (
  created_at_ms BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ai_window_usage_user_kind_time ON velqoza_ai.ai_window_usage(user_id,kind,created_at_ms);
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.package_requests (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+ selection_json TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'pending',
+ created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS package_requests_owner ON velqoza_ai.package_requests(user_id,created_at DESC);
 `;
