@@ -144,6 +144,10 @@ export default function App() {
   const [studioPluginsOpen, setStudioPluginsOpen] = useState(false)
   const [studioAttachProject, setStudioAttachProject] = useState(false)
   const [threadSearch, setThreadSearch] = useState('')
+  const [mediaOpen,setMediaOpen]=useState(false)
+  const [mediaAssets,setMediaAssets]=useState<{id:string;name:string;mime:string;size:number;url:string;createdAt:string}[]>([])
+  const [mediaBusy,setMediaBusy]=useState(false)
+  const [mediaError,setMediaError]=useState('')
   const [publishOpen, setPublishOpen] = useState(false)
   const [publishApproved, setPublishApproved] = useState(false)
   const [publishing,setPublishing] = useState(false)
@@ -610,6 +614,41 @@ export default function App() {
     finally {setBusy(false)}
   }
 
+  async function openMediaLibrary() {
+    if(!user){setAuthMode('login');setAuthOpen(true);return}
+    setMediaOpen(true);setMediaError('')
+    try {const result=await api.mediaAssets();setMediaAssets(result.assets)}
+    catch(error){setMediaError(error instanceof Error?error.message:'Could not load media.')}
+  }
+  async function uploadMediaFile(file:File|undefined) {
+    if(!file)return
+    const allowed=new Set(['image/png','image/jpeg','image/webp','image/gif','audio/mpeg','audio/wav','audio/ogg','video/mp4','video/webm'])
+    if(!allowed.has(file.type)||file.size>3*1024*1024||!file.size){
+      setMediaError('Choose PNG, JPG, WebP, GIF, MP3, WAV, OGG, MP4 or WebM, maximum 3 MB per file.');return
+    }
+    setMediaBusy(true);setMediaError('')
+    try {
+      const dataUrl=await new Promise<string>((resolve,reject)=>{
+        const reader=new FileReader()
+        reader.onload=()=>resolve(String(reader.result||''))
+        reader.onerror=()=>reject(new Error('Could not read the file.'))
+        reader.readAsDataURL(file)
+      })
+      const dataBase64=dataUrl.split(',')[1]
+      if(!dataBase64) throw new Error('The file was empty.')
+      const {asset}=await api.uploadMedia({filename:file.name,mime:file.type,dataBase64})
+      setMediaAssets(items=>[asset,...items])
+      flash('Media uploaded. Use its URL inside your website.')
+    }catch(error){setMediaError(error instanceof Error?error.message:'Upload failed.')}
+    finally {setMediaBusy(false)}
+  }
+  async function removeMediaAsset(id:string) {
+    if(!window.confirm('Delete this media? Any published website using its URL may lose the file.')) return
+    setMediaBusy(true);setMediaError('')
+    try {await api.deleteMedia(id);setMediaAssets(items=>items.filter(x=>x.id!==id));flash('Media deleted.')}
+    catch(error){setMediaError(error instanceof Error?error.message:'Delete failed.')}
+    finally {setMediaBusy(false)}
+  }
   async function openPublish() {
     setPublishOpen(true);setPublishApproved(false);setPublishError('');setPublishedUrl('')
     setSiteNameInput(slug(projectName).slice(0,40).padEnd(3,'0'))
@@ -792,7 +831,7 @@ export default function App() {
       </section>
       <footer className="footer"><a href="#" className="brand"><span className="brand-mark"><Sparkles size={17}/></span>VELQOZA<span className="brand-ai"> AI</span></a><span>Build beyond imagination.</span><span>© {new Date().getFullYear()} VELQOZA AI</span></footer>
     </main> : <main className="workspace">
-      <div className="workspace-head"><div><button className="back-link" onClick={()=>setTab('builder')}>← Back to home</button><div className="project-title"><input value={projectName} onChange={e=>setProjectName(e.target.value)} aria-label="Project name"/><span className={`saved-indicator ${changed?'has-changes':''}`} title={saveError || 'Automatically saved to your account'}>{!user?'LOGIN TO SAVE':saveStatus==='error'?'SAVE FAILED — RETRY':saveStatus==='saving'?'SAVING…':changed?'AUTO-SAVE PENDING':'ALL CHANGES SAVED'}</span></div></div><div className="workspace-actions"><label className="outline-btn" style={{cursor:'pointer'}} title="Import existing HTML/CSS/JavaScript website ZIP"><FolderOpen size={15}/> Import ZIP<input type="file" accept=".zip,application/zip" hidden onChange={e=>{void importExistingZip(e.target.files?.[0]);e.target.value=''}}/></label><button className="outline-btn" onClick={undoLastEdit} disabled={!undoStack.length} title="Restore the previous AI edit (this session)"><RotateCcw size={15}/> Undo AI edit</button><button className="outline-btn" onClick={()=>setHistoryOpen(v=>!v)}><RotateCcw size={15}/> History ({undoStack.length})</button><button className="outline-btn" onClick={()=>setInspectorOpen(v=>!v)}><FolderTree size={15}/> Files</button><button className="outline-btn" onClick={saveProject}><Save size={15}/> Save</button><button className="outline-btn" onClick={openPreview}><ExternalLink size={15}/> Open</button><button className="download-btn" onClick={()=>void openPublish()}><Rocket size={15}/> Publish</button><button className="download-btn" onClick={downloadFiles}><Download size={15}/> Export ZIP</button></div></div>
+      <div className="workspace-head"><div><button className="back-link" onClick={()=>setTab('builder')}>← Back to home</button><div className="project-title"><input value={projectName} onChange={e=>setProjectName(e.target.value)} aria-label="Project name"/><span className={`saved-indicator ${changed?'has-changes':''}`} title={saveError || 'Automatically saved to your account'}>{!user?'LOGIN TO SAVE':saveStatus==='error'?'SAVE FAILED — RETRY':saveStatus==='saving'?'SAVING…':changed?'AUTO-SAVE PENDING':'ALL CHANGES SAVED'}</span></div></div><div className="workspace-actions"><button className="outline-btn" onClick={()=>void openMediaLibrary()}><FolderOpen size={15}/> Media</button><label className="outline-btn" style={{cursor:'pointer'}} title="Import existing HTML/CSS/JavaScript website ZIP"><FolderOpen size={15}/> Import ZIP<input type="file" accept=".zip,application/zip" hidden onChange={e=>{void importExistingZip(e.target.files?.[0]);e.target.value=''}}/></label><button className="outline-btn" onClick={undoLastEdit} disabled={!undoStack.length} title="Restore the previous AI edit (this session)"><RotateCcw size={15}/> Undo AI edit</button><button className="outline-btn" onClick={()=>setHistoryOpen(v=>!v)}><RotateCcw size={15}/> History ({undoStack.length})</button><button className="outline-btn" onClick={()=>setInspectorOpen(v=>!v)}><FolderTree size={15}/> Files</button><button className="outline-btn" onClick={saveProject}><Save size={15}/> Save</button><button className="outline-btn" onClick={openPreview}><ExternalLink size={15}/> Open</button><button className="download-btn" onClick={()=>void openPublish()}><Rocket size={15}/> Publish</button><button className="download-btn" onClick={downloadFiles}><Download size={15}/> Export ZIP</button></div></div>
       <div className="workspace-grid">
         <aside className="assistant-panel">
           <div className="assistant-title"><div className="assistant-icon"><Sparkles size={16}/></div><div><strong>VELQOZA assistant</strong><small>AI DESIGN PARTNER</small></div><span className="online-dot"/></div>
@@ -835,6 +874,29 @@ export default function App() {
     <div className="wallet-history"><div className="wallet-history-head"><strong>Recent activity</strong><button type="button" onClick={()=>void refreshWallet()} title="Refresh balance and activity"><RotateCcw size={14}/> Refresh</button></div>
     {walletInfo?.ledger?.length ? <div className="wallet-ledger" role="list">{walletInfo.ledger.slice(0,12).map(entry=><div className="wallet-ledger-row" role="listitem" key={entry.id}><div><strong>{entry.kind === 'voucher'?'Prepaid credit code':entry.kind === 'refund'?'Refund':entry.kind === 'generate'?'Website generation':entry.kind === 'edit'?'Website edit':entry.kind === 'studio'?'AI Studio chat':entry.kind}</strong><small>{new Date(entry.createdAt).toLocaleString()}</small></div><b className={entry.delta >= 0?'wallet-ledger-positive':'wallet-ledger-negative'}>{entry.delta >= 0?'+':''}{entry.delta}</b></div>)}</div> : <p className="wallet-history-empty">No credit activity yet. Your transactions will appear here.</p>}</div>
     </div></div>}
+    {mediaOpen && <div className="modal-backdrop" onClick={()=>setMediaOpen(false)}>
+      <div className="projects-modal" role="dialog" aria-modal="true" aria-label="Project media library" onClick={e=>e.stopPropagation()} style={{maxHeight:'85vh',overflowY:'auto'}}>
+        <div className="modal-head"><div><span className="section-kicker">MEDIA LIBRARY</span><h2>Images, audio & video</h2></div><button className="icon-btn" onClick={()=>setMediaOpen(false)} aria-label="Close media"><X/></button></div>
+        <p style={{fontSize:13,lineHeight:1.65}}>Upload media once, then reference its URL from website HTML, CSS or the AI editor. Up to 20 files (30 MB total), maximum 3 MB each. Links are publicly accessible if shared: don't upload private files. Video must be a short compressed clip.</p>
+        <label className="download-btn" style={{display:'inline-flex',cursor:mediaBusy?'wait':'pointer',marginTop:12,alignItems:'center',gap:8}}>
+          <Plus size={15}/> {mediaBusy?'Uploading...':'Upload media'}
+          <input type="file" hidden disabled={mediaBusy} accept="image/png,image/jpeg,image/webp,image/gif,audio/mpeg,audio/wav,audio/ogg,video/mp4,video/webm" onChange={e=>{void uploadMediaFile(e.target.files?.[0]);e.target.value=''}}/>
+        </label>
+        {mediaError && <p role="alert" style={{color:'#f4a7a7',marginTop:10}}>{mediaError}</p>}
+        <div style={{display:'grid',gap:12,marginTop:16}}>
+        {mediaAssets.length===0 && <p style={{opacity:.75}}>No media uploaded yet.</p>}
+        {mediaAssets.map(asset=><div key={asset.id} style={{border:'1px solid rgba(255,255,255,.14)',borderRadius:12,padding:12,display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
+          {asset.mime.startsWith('image/')?<img src={asset.url} alt={asset.name} style={{width:84,height:66,objectFit:'cover',borderRadius:7}}/>:asset.mime.startsWith('audio/')?<audio controls preload="none" src={asset.url} style={{width:160,maxWidth:'100%'}}/>:<video controls preload="metadata" src={asset.url} style={{width:150,maxWidth:'100%',height:90}}/>}
+          <div style={{flex:1,minWidth:130,overflowWrap:'anywhere'}}><strong>{asset.name}</strong><div style={{fontSize:12,opacity:.75}}>{(asset.size/1024).toFixed(0)} KB · {asset.mime}</div></div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            <button className="outline-btn" onClick={()=>{void navigator.clipboard.writeText(window.location.origin+asset.url);flash('Media URL copied.')}}><Copy size={13}/> URL</button>
+            <button className="outline-btn" onClick={()=>{setChat(text=>text+(text?'\n':'')+'Use the uploaded '+asset.mime+' file at '+asset.url+' in this website. Keep the other pages and functionality intact.');setMediaOpen(false);setTab('editor')}}><WandSparkles size={13}/> Use with AI</button>
+            <button className="outline-btn" disabled={mediaBusy} onClick={()=>void removeMediaAsset(asset.id)}><Trash2 size={13}/></button>
+          </div>
+        </div>)}
+        </div>
+      </div>
+    </div>}
     {publishOpen && code && <div className="modal-backdrop" onClick={()=>setPublishOpen(false)}>
       <div className="projects-modal" role="dialog" aria-modal="true" aria-label="Publish website" onClick={e=>e.stopPropagation()}>
         <div className="modal-head"><div><span className="section-kicker">DIRECT PUBLISH</span><h2>Publish {code.title}</h2></div><button className="icon-btn" onClick={()=>setPublishOpen(false)} aria-label="Close publishing"><X/></button></div>
