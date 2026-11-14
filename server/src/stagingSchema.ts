@@ -88,4 +88,15 @@ CREATE TABLE IF NOT EXISTS velqoza_ai.published_site_names (
  user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
  created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.media_assets (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+  filename TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  data_base64 TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS media_assets_user_created ON velqoza_ai.media_assets(user_id,created_at DESC);
 `;
