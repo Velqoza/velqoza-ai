@@ -620,9 +620,15 @@ export default function App() {
       // The backend publishes only a saved, owned project. Ensure latest editor snapshot
       // is persisted before publishing, including any recent changes.
       await persistProject(true)
-      if (saveSnapshotRef.current.code !== code || saveStatus==='error') throw new Error('Save the latest project changes first.')
       const id=activeIdRef.current
       if (!id) throw new Error('Project has not been saved yet.')
+      // Never publish an older server snapshot if the save failed or another
+      // autosave was still running. Verify the exact saved revision first.
+      const saved=await api.projects()
+      const stored=saved.projects.find(item=>item.id===id)
+      if (!stored || JSON.stringify(stored.code)!==JSON.stringify(code)) {
+        throw new Error('Your latest edits are not saved yet. Click Save and try Publish again.')
+      }
       const result=await api.publish(id)
       setPublishedUrl(result.url)
       flash(result.updated?'Public website updated.':'Website published!')
