@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { paypalMode, priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture, webhookCaptureId } from '../src/payments.js'
+import { paypalMode, priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture, webhookCaptureId, completedWebhookReference } from '../src/payments.js'
 
 test('stored package grants are immutable and amount-bound',()=>{
   const selection={type:'package' as const,packageId:'starter' as const}
@@ -59,4 +59,12 @@ test('PayPal Live is blocked on staging, even with approval flags',()=>{
     process.env.LIVE_PAYMENTS_APPROVED='true'
     assert.equal(paypalMode(),'live')
   }finally{for(const k of keys){if(original[k]===undefined)delete process.env[k];else process.env[k]=original[k]}}
+})
+
+test('completed webhook references require valid order and capture IDs',()=>{
+  const event={id:'EVENTCOMPLETED01',event_type:'PAYMENT.CAPTURE.COMPLETED',resource:{id:'CAPTURE0001',supplementary_data:{related_ids:{order_id:'ORDER000001'}}}}
+  assert.deepEqual(completedWebhookReference(event),{orderId:'ORDER000001',captureId:'CAPTURE0001'})
+  assert.equal(completedWebhookReference({...event,event_type:'PAYMENT.CAPTURE.REFUNDED'}),null)
+  assert.equal(completedWebhookReference({...event,resource:{...event.resource,id:'invalid capture'}}),null)
+  assert.equal(completedWebhookReference({...event,resource:{id:'CAPTURE0001'}}),null)
 })
