@@ -138,6 +138,11 @@ export default function App() {
   const [studioMessages, setStudioMessages] = useState<StudioMessage[]>([])
   const [studioInput, setStudioInput] = useState('')
   const [studioBusy, setStudioBusy] = useState(false)
+  const [studioWebSearch,setStudioWebSearch] = useState(false)
+  const [studioMemoryOpen,setStudioMemoryOpen] = useState(false)
+  const [studioMemoryItems,setStudioMemoryItems] = useState<{id:string;content:string;createdAt:string}[]>([])
+  const [studioMemoryDraft,setStudioMemoryDraft] = useState('')
+  const [studioMemoryError,setStudioMemoryError] = useState('')
   const [studioPlugins, setStudioPlugins] = useState<StudioPlugin[]>([])
   const [enabledPlugins, setEnabledPlugins] = useState<string[]>([])
   const [studioSidebarOpen, setStudioSidebarOpen] = useState(true)
@@ -342,6 +347,22 @@ export default function App() {
     try { await api.deleteStudioThread(id);setStudioThreads(t=>t.filter(x=>x.id!==id));if(studioActive===id){setStudioActive(null);setStudioMessages([])} }
     catch(e){flash((e as Error).message)}
   }
+  async function openStudioMemory() {
+    setStudioMemoryOpen(true);setStudioMemoryError('')
+    try {const result=await api.studioMemory();setStudioMemoryItems(result.memories)}
+    catch(error){setStudioMemoryError(error instanceof Error?error.message:'Could not load memories.')}
+  }
+  async function pinStudioMemory() {
+    const content=studioMemoryDraft.trim()
+    if(!content)return
+    setStudioMemoryError('')
+    try {const r=await api.addStudioMemory(content);setStudioMemoryItems(items=>[r.memory,...items]);setStudioMemoryDraft('')}
+    catch(error){setStudioMemoryError(error instanceof Error?error.message:'Could not save memory.')}
+  }
+  async function removeStudioMemory(id:string) {
+    try {await api.deleteStudioMemory(id);setStudioMemoryItems(items=>items.filter(x=>x.id!==id))}
+    catch(error){setStudioMemoryError(error instanceof Error?error.message:'Could not delete memory.')}
+  }
   async function sendStudio() {
     const message = studioInput.trim()
     if (!message || studioBusy || !user) return
@@ -354,7 +375,7 @@ export default function App() {
       if (!id) {setStudioInput(current => current || message);return}
       const stamp=new Date().toISOString()
       setStudioMessages(m=>[...m,{id:`pending-${stamp}`,role:'user',content:message,createdAt:stamp}])
-      const response=await api.sendStudioMessage(id,{message,pluginIds:enabledPlugins,projectCode:studioAttachProject && code ? code : undefined})
+      const response=await api.sendStudioMessage(id,{message,pluginIds:enabledPlugins,projectCode:studioAttachProject && code ? code : undefined,searchWeb:studioWebSearch})
       setStudioMessages(m=>[...m,{id:`answer-${stamp}`,role:'assistant',content:response.reply,createdAt:new Date().toISOString()}])
       const list=await api.studioThreads();setStudioThreads(list.threads)
     } catch(e) {
@@ -778,12 +799,21 @@ export default function App() {
         <div className="studio-side-bottom"><button onClick={()=>{if(changed && !window.confirm('Unsaved changes. Leave editor?'))return;setTab('builder');setCode(null)}}><LayoutTemplate size={16}/> Website Builder <ArrowUpRight size={14}/></button><button onClick={()=>{setShowProjects(true)}}><FolderOpen size={16}/> My Projects <span>{projectCount}</span></button><div className="studio-profile"><span className="studio-profile-icon">{user?.email.charAt(0).toUpperCase()}</span><span>{user?.email}<small>Local development workspace</small></span></div></div>
       </div>
       <div className="studio-main">
-        <div className="studio-toolbar"><div className="studio-toolbar-start">{!studioSidebarOpen&&<button onClick={()=>setStudioSidebarOpen(true)} title="Open sidebar"><PanelLeftOpen size={18}/></button>}<span className="studio-current">VELQOZA AI <ChevronDown size={13}/></span><span className="studio-beta">STUDIO</span></div><div className="studio-toolbar-actions"><button className={studioPluginsOpen?'active':''} onClick={()=>setStudioPluginsOpen(v=>!v)}><Plug size={16}/> Plugins {enabledPlugins.length>0&&<b>{enabledPlugins.length}</b>}</button><button onClick={()=>{setStudioAttachProject(v=>!v)}} className={studioAttachProject&&code?'active':''}><Layers3 size={16}/>{studioAttachProject&&code?'Project attached':'Project context'}</button></div></div>
+        <div className="studio-toolbar"><div className="studio-toolbar-start">{!studioSidebarOpen&&<button onClick={()=>setStudioSidebarOpen(true)} title="Open sidebar"><PanelLeftOpen size={18}/></button>}<span className="studio-current">VELQOZA AI <ChevronDown size={13}/></span><span className="studio-beta">STUDIO</span></div><div className="studio-toolbar-actions"><button onClick={()=>setStudioWebSearch(v=>!v)} className={studioWebSearch?'active':''} title="Allow this chat to search the live web when answering"><Globe2 size={16}/> {studioWebSearch?'Web search ON':'Search web'}</button><button onClick={()=>void openStudioMemory()} title="Saved memory across chats"><BrainCircuit size={16}/> Memory</button><button className={studioPluginsOpen?'active':''} onClick={()=>setStudioPluginsOpen(v=>!v)}><Plug size={16}/> Plugins {enabledPlugins.length>0&&<b>{enabledPlugins.length}</b>}</button><button onClick={()=>{setStudioAttachProject(v=>!v)}} className={studioAttachProject&&code?'active':''}><Layers3 size={16}/>{studioAttachProject&&code?'Project attached':'Project context'}</button></div></div>
+        {studioMemoryOpen && <div className="studio-plugin-drawer" style={{padding:16}}>
+          <div className="studio-drawer-title"><div><span>ACCOUNT MEMORY</span><h3>What VELQOZA remembers</h3><p>These pinned facts are shared across your AI Studio conversations. You control what is saved. Relevant excerpts from older conversations can also be retrieved automatically.</p></div><button onClick={()=>setStudioMemoryOpen(false)} title="Close memory"><X size={18}/></button></div>
+          <div style={{display:'flex',gap:8,margin:'12px 0',flexWrap:'wrap'}}>
+            <input aria-label="New memory" value={studioMemoryDraft} maxLength={500} onChange={e=>setStudioMemoryDraft(e.target.value)} placeholder="e.g. My brand is VELQOZA; I prefer dark designs" style={{flex:1,minWidth:200,background:'#211a2c',color:'#f8f5ff',padding:10,border:'1px solid #786098',borderRadius:8}}/>
+            <button className="outline-btn" disabled={studioMemoryDraft.trim().length<3} onClick={()=>void pinStudioMemory()}><Plus size={15}/> Save memory</button>
+          </div>
+          {studioMemoryError && <p role="alert" style={{color:'#f5a1a1'}}>{studioMemoryError}</p>}
+          <div style={{display:'grid',gap:9}}>{studioMemoryItems.length===0?<p>No pinned memories yet.</p>:studioMemoryItems.map(item=><div key={item.id} style={{display:'flex',alignItems:'center',gap:10,padding:10,border:'1px solid rgba(255,255,255,.12)',borderRadius:8}}><span style={{flex:1,overflowWrap:'anywhere'}}>{item.content}</span><button onClick={()=>void removeStudioMemory(item.id)} title="Delete this memory"><X size={15}/></button></div>)}</div>
+        </div>}
         {studioPluginsOpen && <div className="studio-plugin-drawer"><div className="studio-drawer-title"><div><span>TOOLS & EXTENSIONS</span><h3>Built-in plugins</h3><p>Enable local analysis tools. External services aren't connected.</p></div><button onClick={()=>setStudioPluginsOpen(false)} title="Close"><X size={18}/></button></div><div className="studio-plugin-grid">{studioPlugins.map(pl=><label className={`studio-plugin ${enabledPlugins.includes(pl.id)?'enabled':''}`} key={pl.id}><span className="studio-plugin-icon">{pl.id==='seo-audit'?<Search size={19}/>:pl.id==='accessibility'?<ShieldCheck size={19}/>:pl.id==='project-map'?<Layers3 size={19}/>:<Rocket size={19}/>}</span><span className="studio-plugin-copy"><strong>{pl.name}</strong><small>{pl.description}{pl.needsProject?' Requires attached project.':''}</small></span><input type="checkbox" checked={enabledPlugins.includes(pl.id)} onChange={e=>setEnabledPlugins(ids=>e.target.checked?[...ids,pl.id]:ids.filter(x=>x!==pl.id))}/></label>)}</div></div>}
         <div className="studio-conversation">
           {studioMessages.length === 0 ? <div className="studio-welcome"><div className="studio-orb"><Sparkles size={34}/></div><span className="studio-overline">CREATIVE INTELLIGENCE</span><h1>What will we <span>create today?</span></h1><p>Ask anything, plan a project, debug your code, or brainstorm your next big idea. Your conversations stay organized in your account.</p><div className="studio-prompt-grid">{[['Plan a website','Help me plan a premium barbershop website.'],['Debug my code','Help me troubleshoot a JavaScript error.'],['Improve my design','What makes a website feel premium and cinematic?'],['Launch checklist','Give me a practical checklist for launching a small business website.']].map(([title,content])=><button key={title} onClick={()=>setStudioInput(content)}><Sparkles size={15}/><strong>{title}</strong><span>{content}</span><ArrowUpRight size={15}/></button>)}</div></div> : <div className="studio-messages">{studioMessages.map((m,i)=><article className={`studio-bubble-row ${m.role}`} key={m.id||i}><div className="studio-bubble-avatar">{m.role==='user'?(user?.email.charAt(0).toUpperCase()||'U'):<Sparkles size={17}/>}</div><div className="studio-bubble"><div className="studio-bubble-name">{m.role==='user'?'YOU':'VELQOZA AI'}</div><div className="studio-bubble-text"><StudioContent content={m.content} onCopy={()=>flash("Code copied.")}/></div>{m.role==='assistant'&&<div className="studio-message-actions"><button className="studio-copy" onClick={()=>{navigator.clipboard.writeText(m.content);flash('Copied to clipboard.')}}><Copy size={13}/> Copy</button><button className="studio-build-btn" onClick={()=>prepareBuildFromChat(m.content)} title="Use this response as your next website prompt"><WandSparkles size={14}/> Build this project <ArrowUpRight size={13}/></button></div>}</div></article>)}{studioBusy&&<div className="studio-thinking"><span/><span/><span/> Thinking through your request...</div>}<div ref={studioBottomRef}/></div>}
         </div>
-        <div className="studio-compose-wrap">{studioSendError && <div className="studio-send-error" role="alert">{studioSendError}<button onClick={()=>setStudioSendError('')}>Dismiss</button></div>}<div className="studio-compose"><textarea ref={studioInputRef} value={studioInput} rows={3} onChange={e=>setStudioInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();if(!studioBusy)sendStudio()}}} placeholder={studioBusy?"You can type your next message while AI responds...":"Message VELQOZA AI..."} aria-label="Chat message" /><div className="studio-compose-bottom"><div><span><Sparkles size={13}/> AI Studio</span>{enabledPlugins.length>0&&<span><Plug size={13}/> {enabledPlugins.length} tools enabled</span>}{studioAttachProject&&code&&<span><Layers3 size={13}/> {code.title}</span>}</div><button onClick={sendStudio} disabled={studioBusy||!studioInput.trim()} aria-label="Send message">{studioBusy?<LoaderCircle className="spin" size={17}/>:<Send size={17}/>}</button></div></div><p className="studio-disclaimer">AI can make mistakes. Chat replies do not automatically change your website or execute code.</p></div>
+        <div className="studio-compose-wrap">{studioSendError && <div className="studio-send-error" role="alert">{studioSendError}<button onClick={()=>setStudioSendError('')}>Dismiss</button></div>}<div className="studio-compose"><textarea ref={studioInputRef} value={studioInput} rows={3} onChange={e=>setStudioInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();if(!studioBusy)sendStudio()}}} placeholder={studioBusy?"You can type your next message while AI responds...":"Message VELQOZA AI..."} aria-label="Chat message" /><div className="studio-compose-bottom"><div><span><Sparkles size={13}/> AI Studio</span>{studioWebSearch&&<span><Globe2 size={13}/> Web search enabled</span>}{enabledPlugins.length>0&&<span><Plug size={13}/> {enabledPlugins.length} tools enabled</span>}{studioAttachProject&&code&&<span><Layers3 size={13}/> {code.title}</span>}</div><button onClick={sendStudio} disabled={studioBusy||!studioInput.trim()} aria-label="Send message">{studioBusy?<LoaderCircle className="spin" size={17}/>:<Send size={17}/>}</button></div></div><p className="studio-disclaimer">AI can make mistakes. Chat replies do not automatically change your website or execute code.</p></div>
       </div>
     </main> : tab === 'builder' || !code ? <main>
       <section className="hero">
