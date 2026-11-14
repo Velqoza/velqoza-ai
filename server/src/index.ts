@@ -483,10 +483,10 @@ app.get('/published/:slug/:filename',(req,res)=>{
   const html=pages[filename]
   const css='<link rel="stylesheet" href="styles.css">'
   const js='<script src="script.js"></script>'
-  const hasFullDocument=/<!doctype\\s+html|<html[\\s>]/i.test(html)
+  const hasFullDocument=/<!doctype\s+html|<html[\s>]/i.test(html)
   let document=hasFullDocument ? html : `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${code.title.replace(/[<>&]/g,'')}</title></head><body>${html}</body></html>`
-  document=/<\\/head>/i.test(document)?document.replace(/<\\/head>/i,css+'</head>'):css+document
-  document=/<\\/body>/i.test(document)?document.replace(/<\\/body>/i,js+'</body>'):document+js
+  document=/<\/head>/i.test(document)?document.replace(/<\/head>/i,css+'</head>'):css+document
+  document=/<\/body>/i.test(document)?document.replace(/<\/body>/i,js+'</body>'):document+js
   res.setHeader('Content-Security-Policy',csp)
   res.type('html').send(document)
 })
