@@ -9,7 +9,13 @@ types.setTypeParser(20, (v:string) => Number(v)) // COUNT(*) returns int8
 // Render's same-region internal Postgres hostname uses a private network and a
 // self-signed certificate. Do not force certificate verification there.
 // Keep full TLS certificate verification for external/public database hosts.
-const dbHost = new URL(workerData.connectionString).hostname
+const dbUrl=new URL(workerData.connectionString)
+const dbHost = dbUrl.hostname
+// Supabase's transaction pooler drops session state between statements.
+// This adapter relies on SET search_path and a single dedicated connection;
+// require the IPv4-compatible *session* pooler on port 5432.
+if(dbHost.endsWith('.pooler.supabase.com') && dbUrl.port!=='5432')
+  throw new Error('Supabase requires Session pooler (port 5432), not Transaction pooler (port 6543).')
 const renderPrivateHost = /^dpg-[a-z0-9-]+$/.test(dbHost)
 const client = new Client({
   connectionString: workerData.connectionString,
