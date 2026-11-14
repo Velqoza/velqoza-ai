@@ -38,6 +38,23 @@ app.use((req,res,next) => {
   next()
 })
 app.use(express.json({ limit: '8mb' }))
+// Subdomain routing is staging-only. DNS and TLS must be provisioned separately;
+// no requests for live *.velqoza.com are intercepted without operator approval.
+app.use((req,res,next)=>{
+  if(process.env.STAGING_INIT_SCHEMA!=='true') return next()
+  const host=req.hostname.toLowerCase()
+  const match=/^([a-z0-9-]+)\.staging\.velqoza\.com$/.exec(host)
+  if(!match || !validSiteName(match[1])) return next()
+  const publication=publicationByName(match[1])
+  if(!publication) return res.status(404).send('Site not found.')
+  if(req.path.includes('/api/') || req.path.startsWith('/api')) return res.status(404).send('Not found.')
+  const filename=req.path==='/'?'index.html':req.path.slice(1)
+  if(filename.includes('/') || !/^[a-z0-9][a-z0-9_.-]{0,80}$/i.test(filename)) return res.status(404).send('Not found.')
+  return servePublishedBySlug(req,res,publication.slug,filename)
+})
+
+
+
 app.use('/api/ai', rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false }))
 app.use('/api/studio', rateLimit({ windowMs: 60_000, limit: 25, standardHeaders: 'draft-7', legacyHeaders: false }))
 app.use('/api/auth', rateLimit({ windowMs: 15*60_000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: false }))
@@ -538,22 +555,6 @@ app.get('/sites/:siteName/:filename',(req,res)=>{
   if (!row) return res.status(404).send('Site not found.')
   return servePublishedBySlug(req,res,row.slug,req.params.filename)
 })
-// Subdomain routing is staging-only. DNS and TLS must be provisioned separately;
-// no requests for live *.velqoza.com are intercepted without operator approval.
-app.use((req,res,next)=>{
-  if(process.env.STAGING_INIT_SCHEMA!=='true') return next()
-  const host=req.hostname.toLowerCase()
-  const match=/^([a-z0-9-]+)\.staging\.velqoza\.com$/.exec(host)
-  if(!match || !validSiteName(match[1])) return next()
-  const publication=publicationByName(match[1])
-  if(!publication) return res.status(404).send('Site not found.')
-  if(req.path.includes('/api/') || req.path.startsWith('/api')) return res.status(404).send('Not found.')
-  const filename=req.path==='/'?'index.html':req.path.slice(1)
-  if(filename.includes('/') || !/^[a-z0-9][a-z0-9_.-]{0,80}$/i.test(filename)) return res.status(404).send('Not found.')
-  return servePublishedBySlug(req,res,publication.slug,filename)
-})
-
-
 // One-origin production build: serve the Vite output from the same Express service.
 // Generated projects are exported only; no generated server code is executed here.
 if (production) {
