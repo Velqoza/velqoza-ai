@@ -91,8 +91,7 @@ export function verifiedCapture(order:PayPalOrder,paymentId:string,expectedCents
 }
 export function fulfillVerifiedPayment(paymentId:string,captureId:string){
   return db.transaction(()=>{
-    const payment=db.prepare('SELECT id,user_id,status,selection_json FROM package_payments WHERE id=?').get(paymentId)
-      as {id:string;user_id:string;status:string;selection_json:string}|undefined
+    const payment=db.prepare('SELECT id,user_id,status,selection_json FROM package_payments WHERE id=?').get(paymentId) as {id:string;user_id:string;status:string;selection_json:string}|undefined
     if(!payment)throw new Error('Checkout record not found.')
     if(payment.status==='completed')return {alreadyApplied:true}
     if(payment.status!=='created')throw new Error('Checkout not available for fulfillment.')
