@@ -850,7 +850,7 @@ export default function App() {
           <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}>
             <input aria-label="Website subdomain name" value={siteNameInput} maxLength={40}
               onChange={e=>{setSiteNameInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,''));setNameAvailability('unknown');setNameReason('')}}
-              placeholder="onyx" style={{minWidth:120,flex:1}}/>
+              placeholder="onyx" style={{minWidth:120,flex:1,background:"#171324",color:"#f7f3ff",caretColor:"#b59bff",border:"1px solid #6d5a8f",borderRadius:8,padding:"10px 12px",fontSize:15,outlineOffset:2}}/>
             <button className="outline-btn" disabled={nameAvailability==='checking'} onClick={()=>void checkPublicationName()}>Check name</button>
           </div>
           <p style={{fontSize:13,marginTop:8,overflowWrap:'anywhere'}}><strong>{siteNameInput||'your-site'}.velqoza.com</strong> <span style={{fontSize:11,opacity:.75}}>planned; not live yet</span></p>
@@ -866,7 +866,7 @@ export default function App() {
             <label style={{display:'flex',gap:9,alignItems:'center',cursor:'pointer'}}><input type="radio" name="publish-domain" checked={publishDomainMode==='existing'} onChange={()=>setPublishDomainMode('existing')}/> I already own a domain (coming later)</label>
             <label style={{display:'flex',gap:9,alignItems:'center',cursor:'pointer'}}><input type="radio" name="publish-domain" checked={publishDomainMode==='buy'} onChange={()=>setPublishDomainMode('buy')}/> Buy a new domain (coming later)</label>
           </div>
-          {publishDomainMode==='existing' && <div style={{marginTop:12}}><label style={{display:'grid',gap:6}}>Domain for future setup<input type="text" value={publishDomain} onChange={e=>setPublishDomain(e.target.value)} placeholder="example.com"/></label><p style={{fontSize:12,marginTop:8}}>Custom domain DNS and ownership verification aren't integrated yet. Publishing will use the staging link, not this domain.</p></div>}
+          {publishDomainMode==='existing' && <div style={{marginTop:12}}><label style={{display:'grid',gap:6}}>Domain for future setup<input type="text" value={publishDomain} onChange={e=>setPublishDomain(e.target.value)} placeholder="example.com" style={{background:"#171324",color:"#f7f3ff",caretColor:"#b59bff",border:"1px solid #6d5a8f",borderRadius:8,padding:"10px 12px",fontSize:15}}/></label><p style={{fontSize:12,marginTop:8}}>Custom domain DNS and ownership verification aren't integrated yet. Publishing will use the staging link, not this domain.</p></div>}
           {publishDomainMode==='buy' && <p style={{fontSize:12,marginTop:12}}>Domain search and payments aren't integrated yet. Publishing uses the staging link. No domain purchase is performed.</p>}
         </fieldset>
         <div style={{padding:14,margin:'14px 0',border:'1px solid rgba(255,255,255,.14)',borderRadius:12}}>
