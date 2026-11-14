@@ -195,7 +195,7 @@ const customSelection=z.object({type:z.literal('custom'),credits:quantity,messag
   if(v.credits+v.messages+v.edits+v.generations===0)ctx.addIssue({code:'custom',message:'Choose at least one item.'})
 })
 const packageSelection=z.object({type:z.literal('package'),packageId:z.enum(['starter','pro','business','agency'])}).strict()
-const packageRequestBody=z.discriminatedUnion('type',[packageSelection,customSelection])
+const packageRequestBody=z.union([packageSelection,customSelection])
 app.get('/api/packages',requireAuth,(_req,res)=>res.json({packages:PACKAGES,customLimits:CUSTOM_LIMITS,checkoutEnabled:false,quotasActive:false,currency:'USD'}))
 app.get('/api/packages/requests',requireAuth,(req:AuthRequest,res)=>{
   const rows=db.prepare('SELECT id,selection_json,status,created_at FROM package_requests WHERE user_id=? ORDER BY created_at DESC LIMIT 25').all(req.userId) as {id:string;selection_json:string;status:string;created_at:string}[]
