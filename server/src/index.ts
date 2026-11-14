@@ -446,6 +446,7 @@ app.post('/api/account/sign-out-other-devices',requireAuth,(req:AuthRequest,res)
   return res.json({ok:true,token:signToken(req.userId!)})
 })
 
+/* UNUSED ANNOUNCEMENTS
 app.get('/api/announcements',(_req,res)=>res.json({announcements:db.prepare('SELECT id,title,body,created_at AS createdAt FROM site_announcements ORDER BY created_at DESC LIMIT 10').all()}))
 const announcementInput=z.object({title:z.string().trim().min(3).max(100),body:z.string().trim().min(3).max(1500)})
 app.post('/api/admin/announcements',requireAuth,requireAdmin,(req:AuthRequest,res)=>{
@@ -461,10 +462,15 @@ app.delete('/api/admin/announcements/:id',requireAuth,requireAdmin,(req:AuthRequ
  if(!result.changes)return res.status(404).json({error:'Not found.'})
  audit(req.userId!,null,'announcement.deleted',req.params.id);res.json({ok:true})
 })
+*/
 // Owner-only management. ADMIN_EMAIL must be set on the server.
 app.get('/api/admin/overview', requireAuth,requireAdmin,(req:AuthRequest,res)=>{
   const users=db.prepare(`SELECT u.id,u.email,u.created_at AS createdAt,u.is_banned AS isBanned,
-    COALESCE(w.balance,0) AS credits,(SELECT COUNT(*) FROM projects p WHERE p.user_id=u.id) AS projects,
+    COALESCE(w.balance,0) AS credits,
+     COALESCE((SELECT remaining FROM usage_quotas q WHERE q.user_id=u.id AND kind='studio'),0) AS messagesRemaining,
+     COALESCE((SELECT remaining FROM usage_quotas q WHERE q.user_id=u.id AND kind='edit'),0) AS editsRemaining,
+     COALESCE((SELECT remaining FROM usage_quotas q WHERE q.user_id=u.id AND kind='generate'),0) AS generationsRemaining,
+     (SELECT COUNT(*) FROM projects p WHERE p.user_id=u.id) AS projects,
     (SELECT COUNT(*) FROM ai_threads t WHERE t.user_id=u.id) AS conversations
     FROM users u LEFT JOIN credit_wallets w ON w.user_id=u.id ORDER BY u.created_at DESC LIMIT 1000`).all()
   const totals=db.prepare(`SELECT (SELECT COUNT(*) FROM users) AS accounts, (SELECT COUNT(*) FROM projects) AS projects,
@@ -510,6 +516,23 @@ app.post('/api/admin/users/:id/credits',requireAuth,requireAdmin,(req:AuthReques
     }).immediate()
     res.json({ok:true,balance})
   }catch(e){res.status(400).json({error:e instanceof Error?e.message:'Could not change balance.'})}
+})
+const ownerQuotaInput=z.object({kind:z.enum(['studio','edit','generate']),delta:z.number().int().min(-100000).max(100000).refine(n=>n!==0),reason:z.string().trim().min(3).max(180)})
+app.post('/api/admin/users/:id/quota',requireAuth,requireAdmin,(req:AuthRequest,res)=>{
+ const parsed=ownerQuotaInput.safeParse(req.body)
+ if(!parsed.success || !z.string().uuid().safeParse(req.params.id).success)return res.status(400).json({error:'Invalid AI usage adjustment.'})
+ try{
+   const remaining=db.transaction(()=>{
+     if(!db.prepare('SELECT id FROM users WHERE id=?').get(req.params.id))throw new Error('Account not found.')
+     const {kind,delta,reason}=parsed.data
+     db.prepare('INSERT OR IGNORE INTO usage_quotas(user_id,kind,remaining) VALUES(?,?,0)').run(req.params.id,kind)
+     const changed=db.prepare('UPDATE usage_quotas SET remaining=remaining+? WHERE user_id=? AND kind=? AND remaining+?>=0 AND remaining+?<=1000000').run(delta,req.params.id,kind,delta,delta)
+     if(!changed.changes)throw new Error('Not enough remaining uses or quota cap exceeded.')
+     audit(req.userId!,req.params.id,'usage_quota',JSON.stringify({kind,delta,reason}))
+     return purchasedQuota(req.params.id,kind)
+   }).immediate()
+   res.json({ok:true,remaining})
+ }catch(e){res.status(400).json({error:e instanceof Error?e.message:'Could not update usage.'})}
 })
 app.post('/api/admin/users/:id/ban',requireAuth,requireAdmin,(req:AuthRequest,res)=>{
   if(!z.string().uuid().safeParse(req.params.id).success || typeof req.body?.banned!=='boolean') return res.status(400).json({error:'Invalid request.'})
