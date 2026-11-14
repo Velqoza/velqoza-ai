@@ -767,6 +767,22 @@ const translations:Record<string,[string,string]> = {
   "Open memory": [
     "فتح الذاكرة",
     "פתיחת זיכרון"
+  ],
+  "Website language": [
+    "لغة الموقع",
+    "שפת האתר"
+  ],
+  "Auto-detect language": [
+    "تحديد اللغة تلقائيًا",
+    "זיהוי שפה אוטומטי"
+  ],
+  "ACCOUNT MEMORY": [
+    "ذاكرة الحساب",
+    "זיכרון החשבון"
+  ],
+  "What VELQZA remembers": [
+    "شو بتذكّر VELQOZA",
+    "מה VELQOZA זוכר"
   ]
 }
 export function translate(language:UiLanguage,english:string):string{
