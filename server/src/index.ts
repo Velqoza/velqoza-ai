@@ -74,7 +74,7 @@ const aiBudgetGuard = (kind:'generate'|'edit'|'studio') => (req:AuthRequest,res:
   try {
     const reservation = db.transaction(() => {
       const result = db.prepare(`INSERT INTO ai_usage(user_id,day,kind,count) VALUES(?,?,?,1)
-        ON CONFLICT(user_id,day,kind) DO UPDATE SET count=count+1 WHERE count < ?`).run(req.userId,day,kind,limit)
+        ON CONFLICT(user_id,day,kind) DO UPDATE SET count=ai_usage.count+1 WHERE ai_usage.count < ?`).run(req.userId,day,kind,limit)
       return result.changes > 0
     })()
     if (!reservation) return res.status(429).json({error:`Daily ${kind} limit reached. Try again tomorrow.`})
