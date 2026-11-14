@@ -16,7 +16,7 @@ import { studioPluginCatalog, runStudioPlugins } from './studioPlugins.js'
 import type { AuthRequest, SiteCode } from './types.js'
 import { validateExtraFiles } from './projectFiles.js'
 import { COSTS, PACKAGES, CUSTOM_LIMITS, CUSTOM_UNIT_PRICES_CENTS, calculateCustomPrice, getCredits, getCreditHistory, chargeAI, refundAI, purchasedQuota, redeemVoucher } from './credits.js'
-import { paypalReady, paypalMode, createCheckout, captureCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection } from './payments.js'
+import { paypalReady, paypalMode, createCheckout, captureCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot } from './payments.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -224,13 +224,17 @@ app.post('/api/packages/requests',requireAuth,rateLimit({windowMs:60*60_000,limi
 // PayPal SANDBOX checkout only. Quotes are immutable snapshots at order
 // creation; no self-reported price, status or redirect token grants benefits.
 app.post('/api/packages/checkout',requireAuth,rateLimit({windowMs:60*60_000,limit:8,standardHeaders:'draft-7',legacyHeaders:false}),async(req:AuthRequest,res)=>{
-  if(!paypalReady())return res.status(503).json({error:'PayPal Sandbox is not configured for this staging environment.'})
+  if(!paypalReady())return res.status(503).json({error:'PayPal checkout is not enabled for this environment.'})
   const parsed=checkoutRequestBody.safeParse(req.body)
   if(!parsed.success)return res.status(400).json({error:'Invalid package request.'})
   const record=db.prepare('SELECT id,user_id,selection_json,status FROM package_requests WHERE id=? AND user_id=?').get(parsed.data.requestId,req.userId) as {id:string;user_id:string;selection_json:string;status:string}|undefined
   if(!record || record.status!=='pending')return res.status(404).json({error:'An unfulfilled package request is required.'})
   const selection=JSON.parse(record.selection_json) as PaidSelection
   const pricing=priceSelection(selection)
+  // A quote must match what the customer saw when submitting their request.
+  // Price changes require a fresh quote, never an unexpected higher charge.
+  const originalQuote=(selection as PaidSelection & {pricing?:{totalCents?:number}}).pricing
+  if(originalQuote?.totalCents!==pricing.amountCents)return res.status(409).json({error:'Package pricing changed. Request a new quote before checkout.'})
   if(pricing.amountCents<50||pricing.amountCents>1_000_000)return res.status(400).json({error:'Sandbox checkout is limited to $0.50–$10,000. Reduce the custom quantity.'})
   const origin=(process.env.CLIENT_ORIGIN||'').split(',').map(x=>x.trim()).find(x=>x.startsWith('https://'))
   if(!origin)return res.status(503).json({error:'Secure checkout return origin is not configured.'})
@@ -240,7 +244,7 @@ app.post('/api/packages/checkout',requireAuth,rateLimit({windowMs:60*60_000,limi
   const paymentId=existing?.id||randomUUID()
   if(!existing){
     db.prepare('INSERT INTO package_payments(id,user_id,request_id,amount_cents,currency,selection_json,status,created_at) VALUES(?,?,?,?,?,?,?,?)')
-      .run(paymentId,req.userId,record.id,pricing.amountCents,'USD',JSON.stringify(selection),'creating',now())
+      .run(paymentId,req.userId,record.id,pricing.amountCents,'USD',serializePaymentSnapshot(selection,pricing),'creating',now())
   }
   try {
     const order=await createCheckout(paymentId,pricing.amountCents,selection.type==='custom'?'VELQOZA AI Custom':('VELQOZA AI '+selection.packageId),origin.replace(/\/$/,''))
@@ -249,12 +253,12 @@ app.post('/api/packages/checkout',requireAuth,rateLimit({windowMs:60*60_000,limi
       .run(order.orderId,paymentId)
     res.json({orderId:order.orderId,approvalUrl:order.approvalUrl,sandbox:paypalMode()==='sandbox',paymentMode:paypalMode()})
   }catch(error){
-    console.error('Sandbox PayPal order creation failed',error)
-    res.status(502).json({error:'Could not create sandbox checkout. Retry from the package request.'})
+    console.error('PayPal order creation failed',error)
+    res.status(502).json({error:'Could not create PayPal checkout. Retry from the package request.'})
   }
 })
 app.post('/api/packages/checkout/capture',requireAuth,rateLimit({windowMs:60*60_000,limit:8,standardHeaders:'draft-7',legacyHeaders:false}),async(req:AuthRequest,res)=>{
-  if(!paypalReady())return res.status(503).json({error:'Sandbox checkout unavailable.'})
+  if(!paypalReady())return res.status(503).json({error:'PayPal checkout is unavailable.'})
   const parsed=paypalReturnBody.safeParse(req.body)
   if(!parsed.success)return res.status(400).json({error:'Invalid PayPal return information.'})
   const payment=db.prepare('SELECT id,status,amount_cents,currency FROM package_payments WHERE user_id=? AND paypal_order_id=?')
@@ -269,7 +273,7 @@ app.post('/api/packages/checkout/capture',requireAuth,rateLimit({windowMs:60*60_
     const result=fulfillVerifiedPayment(payment.id,captureId)
     res.json({ok:true,alreadyApplied:result.alreadyApplied,balance:getCredits(req.userId!)})
   }catch(error){
-    console.error('Sandbox capture/reconciliation failed',error)
+    console.error('PayPal capture/reconciliation failed',error)
     res.status(502).json({error:'Payment confirmation could not be completed. Your credits have not been updated; retry confirmation or contact support.'})
   }
 })
