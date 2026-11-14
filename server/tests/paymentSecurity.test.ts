@@ -38,6 +38,8 @@ test('only one completed matching PayPal capture can fulfill a purchase',()=>{
 test('refund and dispute webhooks identify original capture for review',()=>{
   assert.equal(webhookCaptureId({id:'EVT12345678',event_type:'PAYMENT.CAPTURE.REFUNDED',resource:{capture_id:'CAP123'}}),'CAP123')
   assert.equal(webhookCaptureId({id:'EVT12345679',event_type:'PAYMENT.CAPTURE.REVERSED',resource:{capture_id:'CAP124'}}),'CAP124')
+  assert.equal(webhookCaptureId({id:'EVT12345690',event_type:'PAYMENT.CAPTURE.REFUNDED',resource:{links:[{rel:'up',href:'https://api-m.paypal.com/v2/payments/captures/CAP128'}]}}),'CAP128')
+  assert.equal(webhookCaptureId({id:'EVT12345691',event_type:'PAYMENT.CAPTURE.REFUNDED',resource:{links:[{rel:'up',href:'https://evil.invalid/v2/payments/captures/CAP128'}]}}),null)
   assert.equal(webhookCaptureId({id:'EVT12345680',event_type:'CUSTOMER.DISPUTE.CREATED',resource:{disputed_transactions:[{seller_transaction_id:'CAP125'}]}}),'CAP125')
   assert.equal(webhookCaptureId({id:'EVT12345681',event_type:'CUSTOMER.DISPUTE.CREATED',resource:{disputed_transactions:[{seller_transaction_id:'CAP125'},{seller_transaction_id:'CAP126'}]}}),null)
   assert.equal(webhookCaptureId({id:'EVT12345682',event_type:'PAYMENT.CAPTURE.COMPLETED',resource:{id:'CAP127'}}),null)
