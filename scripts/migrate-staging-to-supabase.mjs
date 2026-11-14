@@ -47,6 +47,20 @@ async function tableColumns(client,table) {
     ORDER BY ordinal_position`,[table])
   return rows.map(x=>x.column_name)
 }
+async function primaryKeyColumns(client,table) {
+  const {rows}=await client.query(`
+    SELECT k.column_name
+    FROM information_schema.table_constraints t
+    JOIN information_schema.key_column_usage k
+      ON k.constraint_catalog=t.constraint_catalog
+      AND k.constraint_schema=t.constraint_schema
+      AND k.constraint_name=t.constraint_name
+    WHERE t.table_schema='velqoza_ai'
+      AND t.table_name=$1 AND t.constraint_type='PRIMARY KEY'
+    ORDER BY k.ordinal_position`,[table])
+  if(!rows.length)throw Error('Source table has no primary key: '+table)
+  return rows.map(r=>r.column_name)
+}
 async function tableCount(client,table) {
   const {rows}=await client.query(`SELECT COUNT(*)::text AS n FROM velqoza_ai."${table}"`)
   return Number(rows[0]?.n??0)
@@ -82,10 +96,12 @@ async function main(){
         for(const item of plan){
           if(item.source===0)continue
           const cols=await tableColumns(source,item.table)
+          const pk=await primaryKeyColumns(source,item.table)
+          const order=pk.map(c=>'"'+c.replace(/"/g,'""')+'"').join(',')
           const names=cols.map(c=>'"'+c.replace(/"/g,'""')+'"').join(',')
           const pageSize=Math.max(1,Math.min(50,Math.floor(2000/cols.length)))
           for(let offset=0;offset<item.source;offset+=pageSize){
-            const {rows}=await source.query(`SELECT ${names} FROM velqoza_ai."${item.table}" ORDER BY 1 LIMIT $1 OFFSET $2`,[pageSize,offset])
+            const {rows}=await source.query(`SELECT ${names} FROM velqoza_ai."${item.table}" ORDER BY ${order} LIMIT $1 OFFSET $2`,[pageSize,offset])
             if(!rows.length)throw Error('Source changed during migration: '+item.table)
             const placeholders=rows.map((_,i)=>'('+cols.map((_,j)=>'$'+(i*cols.length+j+1)).join(',')+')').join(',')
             const params=rows.flatMap(row=>cols.map(col=>row[col]))
