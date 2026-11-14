@@ -22,5 +22,7 @@ jobs:
         run: npm --workspace server run test
       - name: Build client and server
         run: npm run build
+      - name: Validate production migration script syntax (do not run migration)
+        run: node --check server/scripts/prepare-production-db.mjs
       - name: Check generated outputs
         run: test -f client/dist/index.html && test -f server/dist/index.js
