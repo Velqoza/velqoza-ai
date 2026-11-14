@@ -67,6 +67,37 @@ export function chargeCredits(userId:string,kind:keyof typeof COSTS): string|nul
   }).immediate()
 }
 
+export function purchasedQuota(userId:string,kind:'generate'|'edit'|'studio'){
+  const row=db.prepare('SELECT remaining FROM usage_quotas WHERE user_id=? AND kind=?').get(userId,kind) as {remaining:number}|undefined
+  return row?.remaining??0
+}
+// Purchased quota is always consumed before wallet credits. One request costs
+// one paid slot, never a second credit charge.
+export function chargeAI(userId:string,kind:keyof typeof COSTS):string|null {
+  if(purchasedQuota(userId,kind)>0){
+    const receipt=db.transaction(()=>{
+      const updated=db.prepare('UPDATE usage_quotas SET remaining=remaining-1 WHERE user_id=? AND kind=? AND remaining>0').run(userId,kind)
+      if(!updated.changes)return null
+      const id=randomUUID()
+      db.prepare('INSERT INTO quota_reservations(id,user_id,kind,refunded,created_at) VALUES(?,?,?,0,?)').run(id,userId,kind,new Date().toISOString())
+      return id
+    })()
+    if(receipt)return 'quota:'+receipt
+  }
+  const referenceId=chargeCredits(userId,kind)
+  return referenceId?'credits:'+referenceId:null
+}
+export function refundAI(userId:string,receipt:string){
+  if(receipt.startsWith('credits:'))return refundCredits(userId,receipt.slice(8))
+  if(!receipt.startsWith('quota:'))return
+  const id=receipt.slice(6)
+  db.transaction(()=>{
+    const row=db.prepare('SELECT kind,refunded FROM quota_reservations WHERE id=? AND user_id=?').get(id,userId) as {kind:string;refunded:number}|undefined
+    if(!row||row.refunded)return
+    const update=db.prepare('UPDATE quota_reservations SET refunded=1 WHERE id=? AND user_id=? AND refunded=0').run(id,userId)
+    if(update.changes)db.prepare('UPDATE usage_quotas SET remaining=remaining+1 WHERE user_id=? AND kind=?').run(userId,row.kind)
+  })()
+}
 export function refundCredits(userId:string,referenceId:string) {
   db.transaction(() => {
     const existing=db.prepare('SELECT delta FROM credit_ledger WHERE reference_id=? AND user_id=?').get(referenceId,userId) as {delta:number}|undefined
