@@ -440,6 +440,63 @@ app.delete('/api/projects/:id',requireAuth,(req:AuthRequest,res) => {
   res.json({ok:true})
 })
 
+// Staging media library. Uploads are restricted to genuine supported media signatures,
+// bounded per-account, and distributed only via unguessable UUID paths.
+// The raw media URL is shareable; never upload confidential files.
+const assetMime=z.enum(['image/png','image/jpeg','image/webp','image/gif','audio/mpeg','audio/wav','audio/ogg','video/mp4','video/webm'])
+const mediaUpload=z.object({filename:z.string().min(1).max(120),mime:assetMime,dataBase64:z.string().min(16).max(4_200_000)})
+const maxMediaBytes=3*1024*1024
+function matchesMedia(mime:string,buf:Buffer):boolean {
+  const ascii=(s:number,n:number)=>buf.subarray(s,s+n).toString('ascii')
+  if(mime==='image/png') return buf.length>=8 && buf.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
+  if(mime==='image/jpeg') return buf.length>=4 && buf[0]===255&&buf[1]===216&&buf[2]===255
+  if(mime==='image/gif') return ascii(0,4)==='GIF8' && (buf[4]===0x37||buf[4]===0x39)
+  if(mime==='image/webp') return ascii(0,4)==='RIFF'&&ascii(8,4)==='WEBP'
+  if(mime==='audio/wav') return ascii(0,4)==='RIFF'&&ascii(8,4)==='WAVE'
+  if(mime==='audio/ogg') return ascii(0,4)==='OggS'
+  if(mime==='audio/mpeg') return ascii(0,3)==='ID3' || (buf.length>3&&buf[0]===255&&(buf[1]&0xe0)===0xe0)
+  if(mime==='video/mp4') return ascii(4,4)==='ftyp'
+  if(mime==='video/webm') return buf.length>=4 && buf.subarray(0,4).equals(Buffer.from([0x1a,0x45,0xdf,0xa3]))
+  return false
+}
+const publicMediaId=z.string().uuid()
+const assetSelect='SELECT id,filename,mime,size_bytes,created_at FROM media_assets WHERE user_id=? ORDER BY created_at DESC'
+app.get('/api/media',requireAuth,(req:AuthRequest,res)=>{
+  const rows=db.prepare(assetSelect).all(req.userId) as {id:string;filename:string;mime:string;size_bytes:number;created_at:string}[]
+  res.json({assets:rows.map(a=>({id:a.id,name:a.filename,mime:a.mime,size:a.size_bytes,url:`/media/${a.id}`,createdAt:a.created_at}))})
+})
+app.post('/api/media',requireAuth,rateLimit({windowMs:60_000,limit:10,standardHeaders:'draft-7',legacyHeaders:false}),(req:AuthRequest,res)=>{
+  const parsed=mediaUpload.safeParse(req.body)
+  if(!parsed.success) return res.status(400).json({error:'Invalid media file. Maximum 3 MB. PNG, JPG, WebP, GIF, MP3, WAV, OGG, MP4 and WebM only.'})
+  const {filename,mime,dataBase64}=parsed.data
+  if(!/^[a-zA-Z0-9_. ()-]+$/.test(filename)||filename.startsWith('.')) return res.status(400).json({error:'Rename the file using letters, numbers and standard punctuation.'})
+  if(!/^[a-zA-Z0-9+/]+={0,2}$/.test(dataBase64)||dataBase64.length%4!==0) return res.status(400).json({error:'Invalid media encoding.'})
+  const data=Buffer.from(dataBase64,'base64')
+  if(data.length===0||data.length>maxMediaBytes||!matchesMedia(mime,data)) return res.status(400).json({error:'Media size or file signature does not match the selected type.'})
+  const existing=db.prepare('SELECT COUNT(*) AS count,COALESCE(SUM(size_bytes),0) AS bytes FROM media_assets WHERE user_id=?').get(req.userId) as {count:number;bytes:number}
+  if(existing.count>=20 || existing.bytes+data.length>30*1024*1024) return res.status(413).json({error:'Media library limit reached (20 files or 30 MB total).'})
+  const id=randomUUID(),stamp=now()
+  db.prepare('INSERT INTO media_assets(id,user_id,filename,mime,size_bytes,data_base64,created_at) VALUES(?,?,?,?,?,?,?)')
+    .run(id,req.userId,filename,mime,data.length,dataBase64,stamp)
+  res.status(201).json({asset:{id,name:filename,mime,size:data.length,url:`/media/${id}`,createdAt:stamp}})
+})
+app.delete('/api/media/:id',requireAuth,(req:AuthRequest,res)=>{
+  if(!publicMediaId.safeParse(req.params.id).success) return res.status(404).json({error:'Media not found.'})
+  const result=db.prepare('DELETE FROM media_assets WHERE id=? AND user_id=?').run(req.params.id,req.userId)
+  if(!result.changes) return res.status(404).json({error:'Media not found.'})
+  res.json({ok:true})
+})
+app.get('/media/:id',(req,res)=>{
+  if(!publicMediaId.safeParse(req.params.id).success) return res.status(404).send('Not found.')
+  const row=db.prepare('SELECT mime,data_base64,size_bytes FROM media_assets WHERE id=?').get(req.params.id) as {mime:string;data_base64:string;size_bytes:number}|undefined
+  if(!row) return res.status(404).send('Not found.')
+  res.setHeader('X-Content-Type-Options','nosniff')
+  res.setHeader('Cache-Control','public,max-age=300')
+  res.setHeader('Content-Security-Policy',"default-src 'none'; sandbox")
+  res.setHeader('Content-Disposition','inline')
+  res.type(row.mime).send(Buffer.from(row.data_base64,'base64'))
+})
+
 // Direct publishing: a public snapshot is served by VELQOZA AI itself.
 // Generated code always runs in a CSP-sandboxed opaque origin so it cannot read
 // the VELQOZA app's localStorage/auth tokens, even though it shares a hostname.
