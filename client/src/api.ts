@@ -61,7 +61,7 @@ export const api = {
   checkoutSummary:(id:string)=>request<{order:{id:string;status:string;createdAt:string;packageName:string;selection:{type:'package';packageId:string}|{type:'custom';credits:number;messages:number;edits:number;generations:number};currency:string;amountCents:number;priceChanged:boolean;credits:number;messages:number;edits:number;generations:number;checkoutEnabled:boolean;paymentMode:'sandbox'|'live'|null}}>(`/packages/requests/${encodeURIComponent(id)}/checkout-summary`),
   packageRequests: () => request<{requests:{id:string;selection:unknown;status:string;createdAt:string}[]}>('/packages/requests'),
   cancelPackageRequest: (id:string)=>request<{ok:true}>(`/packages/requests/${encodeURIComponent(id)}`,{method:'DELETE'}),
-  cardFieldsToken:()=>request<{clientToken:string;sdkUrl:string}>('/packages/card-fields-token'),
+  cardFieldsToken:()=>request<{clientToken:string;clientId:string;sdkUrl:string}>('/packages/card-fields-token'),
   startCheckout: (requestId:string,method:'paypal'|'card'|'googlepay'|'applepay'='paypal')=>request<{orderId:string;approvalUrl:string|null;sandbox:boolean;paymentMode:'live'|'sandbox'}>('/packages/checkout',{method:'POST',body:JSON.stringify({requestId,method})}),
   recoverCheckout:(requestId:string)=>request<{ok:true;alreadyApplied:boolean;balance:number}>('/packages/checkout/recover',{method:'POST',body:JSON.stringify({requestId})}),
   paymentReceipts:()=>request<{receipts:{requestId:string;orderId:string}[]}>('/packages/receipts'),
