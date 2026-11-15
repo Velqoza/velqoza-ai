@@ -19,7 +19,7 @@ import { studioPluginCatalog, runStudioPlugins } from './studioPlugins.js'
 import type { AuthRequest, SiteCode } from './types.js'
 import { validateExtraFiles } from './projectFiles.js'
 import { COSTS, PACKAGES, CUSTOM_LIMITS, CUSTOM_UNIT_PRICES_CENTS, calculateCustomPrice, getCredits, getCreditHistory, chargeAI, refundAI, purchasedQuota, redeemVoucher } from './credits.js'
-import { paypalReady, paypalMode, createCheckout, resumeCheckout, captureCheckout, retrieveCompletedCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, verifyPayPalWebhook, recordVerifiedPaymentEvent, completedWebhookReference, type PayPalWebhookEvent } from './payments.js'
+import { paypalReady, paypalMode, createCheckout, resumeCheckout, captureCheckout, retrieveCompletedCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, verifyPayPalWebhook, recordVerifiedPaymentEvent, completedWebhookReference, diagnoseLivePayPal, type PayPalWebhookEvent } from './payments.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -557,6 +557,11 @@ app.get('/api/admin/payments/readiness',requireAuth,requireAdmin,(_req,res)=>{
   // This report only describes configuration; data migration, backups,
   // webhook delivery and authorized merchant approval still require review.
   res.json({checks,configured:checks.every(x=>x.ok),checkoutEnabled:paypalReady(),mode:paypalMode(),note:'Configuration checks only. Data migration, persistence, endpoint reachability and real checkout have not been verified.'})
+})
+// Separate admin-only read-only verification; it never opens checkout or grants Credits.
+app.post('/api/admin/payments/diagnostics',requireAuth,requireAdmin,rateLimit({windowMs:60_000,limit:3,standardHeaders:'draft-7',legacyHeaders:false}),async(_req,res)=>{
+  try{res.json(await diagnoseLivePayPal())}
+  catch{res.status(503).json({error:'PayPal diagnostics could not complete. No payment was attempted.'})}
 })
 // Owner-only payment review queue. This intentionally performs no provider
 // refund or automatic entitlement clawback; human reconciliation is required.
