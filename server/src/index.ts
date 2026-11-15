@@ -27,7 +27,7 @@ const production = process.env.NODE_ENV === 'production'
 const allowedOrigins = (process.env.CLIENT_ORIGIN || 'http://localhost:5173').split(',').map(value => value.trim()).filter(Boolean)
 if (production && (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32)) throw new Error('Production requires JWT_SECRET with 32+ characters.')
 if (production && (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.startsWith('your_'))) throw new Error('Production requires a real OPENAI_API_KEY.')
-if (production && !process.env.DATABASE_URL && !path.isAbsolute(process.env.DATABASE_PATH?.trim() || '')) throw new Error('Production requires an absolute DATABASE_PATH on persistent storage.')
+if (production && !process.env.DATABASE_URL && !(process.env.VELQOZA_PRIMARY_DB === 'supabase' && process.env.SUPABASE_DATABASE_URL?.trim()) && !path.isAbsolute(process.env.DATABASE_PATH?.trim() || '')) throw new Error('Production requires a persistent PostgreSQL connection or an absolute DATABASE_PATH.')
 if (production && !process.env.CLIENT_ORIGIN?.startsWith('https://')) throw new Error('Production requires CLIENT_ORIGIN=https://your-public-domain.')
 if (production && process.env.ENABLE_PUBLIC_SIGNUP === 'true') console.warn('[VELQOZA] Public signup enabled; ensure AI budget safeguards and abuse monitoring are active.')
 app.disable('x-powered-by')
