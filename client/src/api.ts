@@ -62,6 +62,7 @@ export const api = {
   cancelPackageRequest: (id:string)=>request<{ok:true}>(`/packages/requests/${encodeURIComponent(id)}`,{method:'DELETE'}),
   startCheckout: (requestId:string)=>request<{orderId:string;approvalUrl:string;sandbox:boolean;paymentMode:'live'|'sandbox'}>('/packages/checkout',{method:'POST',body:JSON.stringify({requestId})}),
   recoverCheckout:(requestId:string)=>request<{ok:true;alreadyApplied:boolean;balance:number}>('/packages/checkout/recover',{method:'POST',body:JSON.stringify({requestId})}),
+  paymentReceipts:()=>request<{receipts:{requestId:string;orderId:string}[]}>('/packages/receipts'),
   paymentReceipt:(orderId:string)=>request<{receipt:import('./receipt').VerifiedReceipt}>(`/packages/receipt/${encodeURIComponent(orderId)}`),
   captureCheckout: (orderId:string)=>request<{ok:true;alreadyApplied:boolean;balance:number}>('/packages/checkout/capture',{method:'POST',body:JSON.stringify({orderId})}),
   requestPackage: (selection:{type:'package';packageId:string}|{type:'custom';credits:number;messages:number;edits:number;generations:number})=>request<{request:{id:string;status:string;createdAt:string};message:string}>('/packages/requests',{method:'POST',body:JSON.stringify(selection)}),
