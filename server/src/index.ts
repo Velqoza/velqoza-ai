@@ -39,7 +39,7 @@ app.use(cors({ origin(origin, callback) {
 }, credentials: false }))
 app.use('/checkout',(req,res,next)=>{
   if(process.env.RENDER_SERVICE_ID==='srv-dbs3comi0phs73c0s1dg'){
-    res.setHeader('Content-Security-Policy',"default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; script-src 'self' https://www.sandbox.paypal.com https://www.paypal.com https://pay.google.com https://applepay.cdn-apple.com; frame-src 'self' https://*.paypal.com https://pay.google.com https://*.google.com; connect-src 'self' https://*.paypal.com https://*.paypalobjects.com https://pay.google.com https://*.google.com https://*.googleapis.com; img-src 'self' data: https://*.paypal.com https://*.paypalobjects.com https://*.google.com https://pay.google.com; style-src 'self' 'unsafe-inline' https://*.paypal.com https://pay.google.com; font-src 'self' data: https://*.paypalobjects.com")
+    res.setHeader('Content-Security-Policy',"default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; script-src 'self' https://www.sandbox.paypal.com https://www.paypal.com https://pay.google.com https://applepay.cdn-apple.com; frame-src 'self' https://*.paypal.com https://pay.google.com https://*.google.com; connect-src 'self' https://*.paypal.com https://*.paypalobjects.com https://pay.google.com https://*.google.com https://*.googleapis.com https://google.com; img-src 'self' data: https://*.paypal.com https://*.paypalobjects.com https://*.google.com https://www.gstatic.com https://pay.google.com; style-src 'self' 'unsafe-inline' https://*.paypal.com https://pay.google.com https://fonts.googleapis.com; font-src 'self' data: https://*.paypalobjects.com https://fonts.gstatic.com")
   }
   next()
 })
