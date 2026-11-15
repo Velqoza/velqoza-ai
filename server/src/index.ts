@@ -221,7 +221,7 @@ const customSelection=z.object({type:z.literal('custom'),credits:quantity,messag
 })
 const packageSelection=z.object({type:z.literal('package'),packageId:z.enum(['starter','pro','business','agency'])}).strict()
 const packageRequestBody=z.union([packageSelection,customSelection])
-const checkoutRequestBody=z.object({requestId:z.string().uuid(),method:z.enum(['paypal','card']).optional()}).strict()
+const checkoutRequestBody=z.object({requestId:z.string().uuid(),method:z.enum(['paypal','card','googlepay','applepay']).optional()}).strict()
 const paypalReturnBody=z.object({orderId:z.string().regex(/^[A-Za-z0-9]{8,32}$/)}).strict()
 
 app.get('/api/packages',requireAuth,(_req,res)=>res.json({packages:PACKAGES,customLimits:CUSTOM_LIMITS,unitPricesCents:CUSTOM_UNIT_PRICES_CENTS,checkoutEnabled:paypalReady(),paymentMode:paypalMode(),quotasActive:false,currency:'USD'}))
@@ -301,7 +301,7 @@ app.post('/api/packages/checkout',requireAuth,rateLimit({windowMs:60*60_000,limi
   const parsed=checkoutRequestBody.safeParse(req.body)
   if(!parsed.success)return res.status(400).json({error:'Invalid package request.'})
   const method=parsed.data.method||'paypal'
-  if(method==='card'&&!cardFieldsSandboxEnabled())return res.status(503).json({error:'Direct card fields are only enabled in Sandbox testing.'})
+  if(method!=='paypal'&&!cardFieldsSandboxEnabled())return res.status(503).json({error:'Card and wallet payments are only enabled in Sandbox testing.'})
   const record=db.prepare('SELECT id,user_id,selection_json,status FROM package_requests WHERE id=? AND user_id=?').get(parsed.data.requestId,req.userId) as {id:string;user_id:string;selection_json:string;status:string}|undefined
   if(!record || record.status!=='pending')return res.status(404).json({error:'An unfulfilled package request is required.'})
   const selection=JSON.parse(record.selection_json) as PaidSelection
@@ -327,7 +327,7 @@ app.post('/api/packages/checkout',requireAuth,rateLimit({windowMs:60*60_000,limi
   }
   try {
     const order=existing?.paypal_order_id
-      ? method==='card'?await resumeCardCheckout(existing.paypal_order_id,paymentId,pricing.amountCents):await resumeCheckout(existing.paypal_order_id,paymentId,pricing.amountCents)
+      ? method!=='paypal'?await resumeCardCheckout(existing.paypal_order_id,paymentId,pricing.amountCents):await resumeCheckout(existing.paypal_order_id,paymentId,pricing.amountCents)
       : await createCheckout(paymentId,pricing.amountCents,selection.type==='custom'?'VELQOZA AI Custom':('VELQOZA AI '+selection.packageId),origin.replace(/\/$/,''),method)
     db.prepare("UPDATE package_payments SET paypal_order_id=?,status='created' WHERE id=? AND status IN ('creating','created')")
       .run(order.orderId,paymentId)
