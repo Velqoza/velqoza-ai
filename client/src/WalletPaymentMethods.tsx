@@ -59,6 +59,16 @@ export function WalletPaymentMethods({requestId,amountCents,onSuccess}:{requestI
             if(!active)return
             const session=sdk.createGooglePayOneTimePaymentSession()
             const config=session.formatConfigForPaymentRequest(eligible.getDetails('googlepay').config)
+            // Safe diagnostic: metadata only. Never log payment tokens, cards or complete configurations.
+            const methodSummary=(config.allowedPaymentMethods as Array<{tokenizationSpecification?:{type?:string;parameters?:{gateway?:string;gatewayMerchantId?:string}}}>)
+              .map(method=>({tokenizationType:method.tokenizationSpecification?.type||'missing',
+                gateway:method.tokenizationSpecification?.parameters?.gateway||'missing',
+                gatewayMerchantIdPresent:Boolean(method.tokenizationSpecification?.parameters?.gatewayMerchantId)}))
+            console.info('[VELQOZA Google Pay diagnostic]',{
+              countryCode:config.countryCode,
+              merchantInfoPresent:Boolean(config.merchantInfo),
+              methods:methodSummary
+            })
             const client=new win.google!.payments.api.PaymentsClient({
               environment:'TEST',
               paymentDataCallbacks:{
