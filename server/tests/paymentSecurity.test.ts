@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { paypalMode, priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture, webhookCaptureId, completedWebhookReference, validatedApprovalUrl, inspectLiveWebhook } from '../src/payments.js'
+import { paypalMode, priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture, webhookCaptureId, completedWebhookReference, validatedApprovalUrl, inspectLiveWebhook, resumeCheckout } from '../src/payments.js'
 
 test('stored package grants are immutable and amount-bound',()=>{
   const selection={type:'package' as const,packageId:'starter' as const}
@@ -90,4 +90,40 @@ test('live webhook diagnostic enforces exact VELQOZA HTTPS endpoint and subscrip
   assert.equal(inspectLiveWebhook({...webhook,url:'https://evil.example/api/paypal/webhook'},id)[1].ok,false)
   assert.equal(inspectLiveWebhook({...webhook,id:'OTHER123'},id)[0].ok,false)
   assert.equal(inspectLiveWebhook({...webhook,event_types:webhook.event_types.slice(0,2)},id)[2].ok,false)
+})
+
+test('resuming a saved order checks its exact amount, identity and approval URL without capturing',async()=>{
+  const keys=['PAYPAL_ENV','PAYPAL_CLIENT_ID','PAYPAL_CLIENT_SECRET','STAGING_INIT_SCHEMA'] as const
+  const previous=Object.fromEntries(keys.map(k=>[k,process.env[k]]))
+  const originalFetch=globalThis.fetch
+  const calls:string[]=[]
+  const paymentId='payment-test-resume-1'
+  const orderId='ORDER12345678'
+  const originalOrder={
+    id:orderId,status:'CREATED',
+    purchase_units:[{reference_id:paymentId,custom_id:paymentId,amount:{currency_code:'USD',value:'25.00'}}],
+    links:[{rel:'payer-action',href:'https://www.sandbox.paypal.com/checkoutnow?token=ORDER12345678'}]
+  }
+  let order=originalOrder
+  try{
+    Object.assign(process.env,{PAYPAL_ENV:'sandbox',PAYPAL_CLIENT_ID:'test-id',PAYPAL_CLIENT_SECRET:'test-secret',STAGING_INIT_SCHEMA:'true'})
+    globalThis.fetch=async(input,init)=>{
+      const url=String(input)
+      calls.push((init?.method||'GET')+' '+url)
+      if(url.endsWith('/v1/oauth2/token'))return new Response(JSON.stringify({access_token:'mock-token'}),{status:200})
+      if(url.endsWith('/v2/checkout/orders/'+orderId))return new Response(JSON.stringify(order),{status:200})
+      throw new Error('Unexpected PayPal call in no-charge test.')
+    }
+    const good=await resumeCheckout(orderId,paymentId,2500)
+    assert.equal(good.orderId,orderId)
+    assert.equal(good.approvalUrl,originalOrder.links[0].href)
+    assert.equal(calls.some(x=>x.includes('/capture')),false)
+    order={...originalOrder,purchase_units:[{...originalOrder.purchase_units[0],amount:{currency_code:'USD',value:'24.99'}}]}
+    await assert.rejects(resumeCheckout(orderId,paymentId,2500),/amount/)
+    order={...originalOrder,purchase_units:[{...originalOrder.purchase_units[0],custom_id:'other-payment'}]}
+    await assert.rejects(resumeCheckout(orderId,paymentId,2500),/identity/)
+  }finally{
+    globalThis.fetch=originalFetch
+    for(const key of keys){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key]}
+  }
 })
