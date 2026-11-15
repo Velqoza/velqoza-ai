@@ -3,6 +3,7 @@ import JSZip from 'jszip'
 import { ArrowRight, ArrowUpRight, Sparkles, WandSparkles, Code2, Eye, Layers3, ShieldCheck, Zap, Menu, X, Monitor, Tablet, Smartphone, Download, Save, FolderOpen, Plus, MessageSquare, Send, LogOut, Trash2, Pencil, ChevronDown, Check, LoaderCircle, Globe2, Rocket, Palette, LayoutTemplate, ExternalLink, Copy, CircleHelp, Plug, PanelLeftClose, PanelLeftOpen, Search, BrainCircuit, Settings2, FileCode2, RotateCcw, FolderTree, UserRound, UserPlus, KeyRound, RefreshCw, UsersRound } from 'lucide-react'
 import { api } from './api'
 import {CardPaymentFields} from './CardPaymentFields'
+import {WalletPaymentMethods} from './WalletPaymentMethods'
 import {downloadReceiptPdf,type VerifiedReceipt} from './receipt'
 import { translate, isUiLanguage, isRtlLanguage, languageOptions, LANGUAGE_STORAGE_KEY, type UiLanguage } from './i18n'
 import type { Project, SiteCode, User, StudioThread, StudioMessage, StudioPlugin } from './types'
@@ -159,6 +160,7 @@ function CheckoutPage({user}:{user:User|null}){
                   ?<CardPaymentFields requestId={data.id} amountCents={data.amountCents} onSuccess={orderId=>window.location.replace('/purchase-success?order='+encodeURIComponent(orderId))}/>
                   :<p role="status" style={{fontSize:13,color:'#ffceb0'}}>Direct credit/debit card payments are not active in Live checkout yet. This form is being tested in Sandbox.</p>
               )}
+              {data.paymentMode==='sandbox'&&<WalletPaymentMethods requestId={data.id} amountCents={data.amountCents} onSuccess={orderId=>window.location.replace('/purchase-success?order='+encodeURIComponent(orderId))}/>}
               <p style={{fontSize:12,color:'#a9a0c1',lineHeight:1.6,margin:0}}>Card payments are processed in PayPal-hosted secure fields when the merchant account is eligible. VELQOZA never collects your card number or CVV.</p>
               {data.paymentMode==='sandbox'&&<p style={{fontSize:12,color:'#d5b9ff',margin:0}}>Sandbox test mode — no real funds.</p>}
             </div>}
