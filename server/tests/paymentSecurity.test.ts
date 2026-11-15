@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { paypalMode, priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture, webhookCaptureId, completedWebhookReference, validatedApprovalUrl } from '../src/payments.js'
+import { paypalMode, priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture, webhookCaptureId, completedWebhookReference, validatedApprovalUrl, inspectLiveWebhook } from '../src/payments.js'
 
 test('stored package grants are immutable and amount-bound',()=>{
   const selection={type:'package' as const,packageId:'starter' as const}
@@ -79,4 +79,15 @@ test('approval URLs are restricted to the correct PayPal hostname',()=>{
     assert.throws(()=>validatedApprovalUrl({links:[{rel:'approve',href:'http://www.sandbox.paypal.com/checkout'}]}),/Unexpected payment approval destination/)
     assert.throws(()=>validatedApprovalUrl({links:[]}),/approval link/)
   }finally{if(original===undefined)delete process.env.PAYPAL_ENV;else process.env.PAYPAL_ENV=original}
+})
+
+test('live webhook diagnostic enforces exact VELQOZA HTTPS endpoint and subscriptions',()=>{
+  const id='LIVEWEBHOOK123'
+  const webhook={id,url:'https://ai.velqoza.com/api/paypal/webhook',event_types:[
+    {name:'PAYMENT.CAPTURE.COMPLETED'},{name:'PAYMENT.CAPTURE.REFUNDED'},
+    {name:'PAYMENT.CAPTURE.REVERSED'},{name:'CUSTOMER.DISPUTE.CREATED'}]}
+  assert.equal(inspectLiveWebhook(webhook,id).every(x=>x.ok),true)
+  assert.equal(inspectLiveWebhook({...webhook,url:'https://evil.example/api/paypal/webhook'},id)[1].ok,false)
+  assert.equal(inspectLiveWebhook({...webhook,id:'OTHER123'},id)[0].ok,false)
+  assert.equal(inspectLiveWebhook({...webhook,event_types:webhook.event_types.slice(0,2)},id)[2].ok,false)
 })
