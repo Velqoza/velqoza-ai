@@ -151,6 +151,17 @@ export default function App() {
     }catch(error){setPackageFeedback(error instanceof Error?error.message:'Could not save request or start checkout.')}
     finally{setPackageRequestBusy(false)}
   }
+  const cancelPendingPackageRequest=async(requestId:string)=>{
+    if(packageRequestBusy)return
+    setPackageRequestBusy(true);setPackageFeedback('')
+    try{
+      await api.cancelPackageRequest(requestId)
+      setPackageRequestHistory(previous=>previous.filter(p=>p.id!==requestId))
+      setPackageFeedback('Unpaid package request cancelled. No payment was made and no Credits were changed.')
+    }catch(error){
+      setPackageFeedback(error instanceof Error?error.message:'Could not cancel the package request.')
+    }finally{setPackageRequestBusy(false)}
+  }
   const recoverExistingPayment=async(requestId:string)=>{
     if(packageRequestBusy)return
     setPackageRequestBusy(true);setPackageFeedback('Checking PayPal for a completed payment…')
@@ -1134,7 +1145,7 @@ export default function App() {
     {packageTab==='bundles'?
       <div className="credit-packages">{packageCatalog?.packages.map(p=><div key={p.id} className="credit-package" style={{display:'flex',flexDirection:'column',gap:8}}>
         <strong>{p.label}</strong><span>{p.credits.toLocaleString()} Credits</span><span>{p.messages.toLocaleString()} AI Studio messages</span><span>{p.edits.toLocaleString()} edits</span><span>{p.generations.toLocaleString()} generations</span><b>${(p.usdCents/100).toFixed(0)} <small>illustrative price</small></b>
-        <button className="outline-btn" disabled={packageRequestBusy} onClick={()=>void submitPackageRequest({type:'package',packageId:p.id})}>{packageCatalog?.checkoutEnabled?'Pay with PayPal':'Request this package'}</button>
+        <button className="outline-btn" disabled={packageRequestBusy} onClick={()=>void submitPackageRequest({type:'package',packageId:p.id})}>{packageCatalog?.checkoutEnabled?'Pay with PayPal':'Save quote (no payment)'}</button>
       </div>)}</div>:
       <section style={{border:'1px solid rgba(160,135,220,.25)',borderRadius:14,padding:16,display:'grid',gap:13}}>
         <h3 style={{margin:0}}>Build your own package</h3>
@@ -1158,14 +1169,14 @@ export default function App() {
         </div>
         <small style={{opacity:.75}}>Total updates instantly. This is an estimate; submitting a request does not charge payment.</small>
         <button className="generate-btn" disabled={packageRequestBusy||!packageCatalog||Object.values(packageQuantities).every(v=>v===0)||packageQuantities.credits>0&&packageQuantities.credits<10} onClick={()=>void submitPackageRequest({type:'custom',...packageQuantities})}>
-          {packageRequestBusy?'Processing…':packageCatalog?.checkoutEnabled?'Pay with PayPal':'Request custom quote'}
+          {packageRequestBusy?'Processing…':packageCatalog?.checkoutEnabled?'Pay with PayPal':'Save custom quote (no payment)'}
         </button>
       </section>}
     {packageFeedback&&<p role="status" style={{padding:10,border:'1px solid rgba(170,145,210,.3)',borderRadius:8}}>{packageFeedback}</p>}
     <p className="credit-prices">Custom prices use provisional USD unit rates set on the server. Package quantities and listed bundle prices are proposals, not active entitlements. Quote requests do not make payments or change your usage limits. Only a completed, server-verified PayPal capture activates purchased usage. Final prices and renewal periods are pending confirmation. Current AI charges: Generate {walletInfo?.costs.generate ?? '—'} · Edit {walletInfo?.costs.edit ?? '—'} · Chat {walletInfo?.costs.studio ?? '—'} Credits per request.</p>
     {packageRequestHistory.length>0&&<div style={{marginTop:16}}><strong>Your package requests</strong>{packageRequestHistory.slice(0,5).map(request=><div key={request.id} style={{fontSize:12,margin:'7px 0',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
       <span>#{request.id.slice(0,8)} · {request.status} · {new Date(request.createdAt).toLocaleString()}</span>
-      {request.status==='pending'&&packageCatalog?.checkoutEnabled&&<><button disabled={packageRequestBusy} className="outline-btn" onClick={()=>void checkoutExistingRequest(request.id)}>Pay with PayPal</button><button disabled={packageRequestBusy} className="outline-btn" onClick={()=>void recoverExistingPayment(request.id)}>Check completed payment</button></>}
+      {request.status==='pending'&&<>{packageCatalog?.checkoutEnabled&&<><button disabled={packageRequestBusy} className="outline-btn" onClick={()=>void checkoutExistingRequest(request.id)}>Pay with PayPal</button><button disabled={packageRequestBusy} className="outline-btn" onClick={()=>void recoverExistingPayment(request.id)}>Check completed payment</button></>}<button type="button" disabled={packageRequestBusy} className="outline-btn" onClick={()=>void cancelPendingPackageRequest(request.id)}>Cancel request</button></>}
     </div>)}</div>}
     <div className="wallet-history"><div className="wallet-history-head"><strong>Recent activity</strong><button type="button" onClick={()=>void refreshWallet()} title="Refresh balance and activity"><RotateCcw size={14}/> Refresh</button></div>
     {walletInfo?.ledger?.length ? <div className="wallet-ledger" role="list">{walletInfo.ledger.slice(0,12).map(entry=><div className="wallet-ledger-row" role="listitem" key={entry.id}><div><strong>{entry.kind === 'voucher'?'Prepaid credit code':entry.kind === 'refund'?'Refund':entry.kind === 'generate'?'Website generation':entry.kind === 'edit'?'Website edit':entry.kind === 'studio'?'AI Studio chat':entry.kind}</strong><small>{new Date(entry.createdAt).toLocaleString()}</small></div><b className={entry.delta >= 0?'wallet-ledger-positive':'wallet-ledger-negative'}>{entry.delta >= 0?'+':''}{entry.delta}</b></div>)}</div> : <p className="wallet-history-empty">No credit activity yet. Your transactions will appear here.</p>}</div>
