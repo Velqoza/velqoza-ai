@@ -19,7 +19,7 @@ import { studioPluginCatalog, runStudioPlugins } from './studioPlugins.js'
 import type { AuthRequest, SiteCode } from './types.js'
 import { validateExtraFiles } from './projectFiles.js'
 import { COSTS, PACKAGES, CUSTOM_LIMITS, CUSTOM_UNIT_PRICES_CENTS, calculateCustomPrice, getCredits, getCreditHistory, chargeAI, refundAI, purchasedQuota, redeemVoucher } from './credits.js'
-import { paypalReady, paypalMode, createCheckout, resumeCheckout, captureCheckout, retrieveCompletedCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, verifyPayPalWebhook, recordVerifiedPaymentEvent, completedWebhookReference, diagnoseLivePayPal, type PayPalWebhookEvent } from './payments.js'
+import { paypalReady, paypalMode, createCheckout, resumeCheckout, captureCheckout, retrieveCompletedCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, validatedGrants, verifyPayPalWebhook, recordVerifiedPaymentEvent, completedWebhookReference, diagnoseLivePayPal, type PayPalWebhookEvent } from './payments.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -314,6 +314,34 @@ app.post('/api/packages/checkout/capture',requireAuth,rateLimit({windowMs:60*60_
   }catch(error){
     console.error('PayPal capture/reconciliation failed',error)
     res.status(502).json({error:'Payment confirmation could not be completed. Your credits have not been updated; retry confirmation or contact support.'})
+  }
+})
+
+// A receipt is only available for a completed, server-verified purchase owned by
+// the signed-in customer. No user-supplied price or customer details are trusted.
+app.get('/api/packages/receipt/:orderId',requireAuth,(req:AuthRequest,res)=>{
+  const orderId=String(req.params.orderId||'')
+  if(!/^[A-Za-z0-9]{8,32}$/.test(orderId))return res.status(400).json({error:'Invalid payment reference.'})
+  const receipt=db.prepare(`SELECT p.id,p.user_id AS userId,p.paypal_order_id AS orderId,
+    p.paypal_capture_id AS captureId,p.amount_cents AS amountCents,p.currency,
+    p.selection_json AS selectionJson,p.created_at AS createdAt,p.fulfilled_at AS paidAt,
+    u.email FROM package_payments p JOIN users u ON u.id=p.user_id
+    WHERE p.paypal_order_id=? AND p.user_id=? AND p.status IN ('completed','review_required')`)
+    .get(orderId,req.userId) as {id:string;userId:string;orderId:string;captureId:string|null;amountCents:number;currency:string;selectionJson:string;createdAt:string;paidAt:string|null;email:string}|undefined
+  if(!receipt||!receipt.captureId||!receipt.paidAt)return res.status(404).json({error:'Verified receipt not available for this account.'})
+  try{
+    const grants=validatedGrants(receipt.selectionJson,receipt.amountCents)
+    const snapshot=JSON.parse(receipt.selectionJson) as {selection?:PaidSelection}
+    const selection=snapshot.selection
+    const label=selection?.type==='package'?PACKAGES.find(p=>p.id===selection.packageId)?.label:'Custom package'
+    res.setHeader('Cache-Control','no-store')
+    return res.json({receipt:{receiptId:receipt.id,orderId:receipt.orderId,captureId:receipt.captureId,
+      paidAt:receipt.paidAt,currency:receipt.currency,amountCents:receipt.amountCents,
+      packageName:label||'VELQOZA AI package',email:receipt.email,
+      credits:grants.credits,messages:grants.messages,edits:grants.edits,generations:grants.generations,
+      paymentStatus:receipt.captureId?'Paid':'Pending'}})
+  }catch{
+    return res.status(409).json({error:'Receipt is under payment review.'})
   }
 })
 
