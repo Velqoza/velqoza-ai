@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { paypalMode, priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture, webhookCaptureId, completedWebhookReference, validatedApprovalUrl, inspectLiveWebhook, resumeCheckout } from '../src/payments.js'
+import { paypalMode, priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture, webhookCaptureId, completedWebhookReference, validatedApprovalUrl, inspectLiveWebhook, resumeCheckout, createCheckout } from '../src/payments.js'
 
 test('stored package grants are immutable and amount-bound',()=>{
   const selection={type:'package' as const,packageId:'starter' as const}
@@ -125,5 +125,38 @@ test('resuming a saved order checks its exact amount, identity and approval URL 
   }finally{
     globalThis.fetch=originalFetch
     for(const key of keys){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key]}
+  }
+})
+
+test('Google Pay Sandbox orders include the payment source required by the provider',async()=>{
+  const keys=['PAYPAL_ENV','PAYPAL_CLIENT_ID','PAYPAL_CLIENT_SECRET','STAGING_INIT_SCHEMA','RENDER_SERVICE_ID'] as const
+  const old=Object.fromEntries(keys.map(k=>[k,process.env[k]]))
+  const fetchBefore=globalThis.fetch
+  let orderRequests=0
+  try{
+    Object.assign(process.env,{PAYPAL_ENV:'sandbox',PAYPAL_CLIENT_ID:'mock-client',PAYPAL_CLIENT_SECRET:'mock-secret',
+      STAGING_INIT_SCHEMA:'true',RENDER_SERVICE_ID:'srv-dbs3comi0phs73c0s1dg'})
+    globalThis.fetch=async(input,init)=>{
+      const url=String(input)
+      if(url.endsWith('/v1/oauth2/token'))
+        return new Response(JSON.stringify({access_token:'mock-token'}),{status:200})
+      if(url.endsWith('/v2/checkout/orders')){
+        orderRequests++
+        const payload=JSON.parse(String(init?.body))
+        assert.equal(payload.intent,'CAPTURE')
+        assert.equal(payload.purchase_units[0].amount.value,'25.00')
+        assert.equal(payload.payment_source?.google_pay?.attributes?.verification?.method,'SCA_WHEN_REQUIRED')
+        assert.equal(payload.payment_source?.paypal,undefined)
+        return new Response(JSON.stringify({id:'ORDERGOOGLETEST01',status:'CREATED',links:[]}),{status:201})
+      }
+      throw new Error('Unexpected outgoing URL')
+    }
+    const order=await createCheckout('payment-google-test',2500,'Starter','https://staging.example.invalid','googlepay')
+    assert.equal(order.orderId,'ORDERGOOGLETEST01')
+    assert.equal(order.approvalUrl,null)
+    assert.equal(orderRequests,1)
+  }finally{
+    globalThis.fetch=fetchBefore
+    for(const k of keys){if(old[k]===undefined)delete process.env[k];else process.env[k]=old[k]}
   }
 })
