@@ -118,6 +118,7 @@ export default function App() {
   const [walletOpen, setWalletOpen] = useState(false)
   const [packageCatalog,setPackageCatalog]=useState<Awaited<ReturnType<typeof api.packagesCatalog>>|null>(null)
   const [packageRequestHistory,setPackageRequestHistory]=useState<{id:string;selection:unknown;status:string;createdAt:string}[]>([])
+  const [receiptOrders,setReceiptOrders]=useState<{requestId:string;orderId:string}[]>([])
   const [packageTab,setPackageTab]=useState<'bundles'|'custom'>('bundles')
   const [packageQuantities,setPackageQuantities]=useState({credits:10,messages:0,edits:0,generations:0})
   const [packageRequestBusy,setPackageRequestBusy]=useState(false)
@@ -164,8 +165,8 @@ export default function App() {
   const showWallet=async () => {
     setWalletOpen(true);setPackageFeedback('')
     try {
-      const [wallet,catalog,requests]=await Promise.all([api.credits(),api.packagesCatalog(),api.packageRequests()])
-      setWalletBalance(wallet.balance);setWalletInfo(wallet);setPackageCatalog(catalog);setPackageRequestHistory(requests.requests)
+      const [wallet,catalog,requests,receipts]=await Promise.all([api.credits(),api.packagesCatalog(),api.packageRequests(),api.paymentReceipts()])
+      setWalletBalance(wallet.balance);setWalletInfo(wallet);setPackageCatalog(catalog);setPackageRequestHistory(requests.requests);setReceiptOrders(receipts.receipts)
     } catch(e){setPackageFeedback(e instanceof Error?e.message:'Could not load package options.')}
   }
   const initiatePayPalPayment=async(requestId:string)=>{
@@ -1234,6 +1235,7 @@ export default function App() {
     <p className="credit-prices">Custom prices use provisional USD unit rates set on the server. Package quantities and listed bundle prices are proposals, not active entitlements. Quote requests do not make payments or change your usage limits. Only a completed, server-verified PayPal capture activates purchased usage. Final prices and renewal periods are pending confirmation. Current AI charges: Generate {walletInfo?.costs.generate ?? '—'} · Edit {walletInfo?.costs.edit ?? '—'} · Chat {walletInfo?.costs.studio ?? '—'} Credits per request.</p>
     {packageRequestHistory.length>0&&<div style={{marginTop:16}}><strong>Your package requests</strong>{packageRequestHistory.slice(0,5).map(request=><div key={request.id} style={{fontSize:12,margin:'7px 0',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
       <span>#{request.id.slice(0,8)} · {request.status} · {new Date(request.createdAt).toLocaleString()}</span>
+      {request.status==='fulfilled'&&receiptOrders.some(r=>r.requestId===request.id)&&<button type="button" className="outline-btn" onClick={()=>window.location.assign('/purchase-success?order='+encodeURIComponent(receiptOrders.find(r=>r.requestId===request.id)!.orderId))}><Download size={14}/> View receipt</button>}
       {request.status==='pending'&&<>{packageCatalog?.checkoutEnabled&&<><button disabled={packageRequestBusy} className="outline-btn" onClick={()=>void checkoutExistingRequest(request.id)}>Pay with PayPal</button><button disabled={packageRequestBusy} className="outline-btn" onClick={()=>void recoverExistingPayment(request.id)}>Check completed payment</button></>}<button type="button" disabled={packageRequestBusy} className="outline-btn" onClick={()=>void cancelPendingPackageRequest(request.id)}>Cancel request</button></>}
     </div>)}</div>}
     <div className="wallet-history"><div className="wallet-history-head"><strong>Recent activity</strong><button type="button" onClick={()=>void refreshWallet()} title="Refresh balance and activity"><RotateCcw size={14}/> Refresh</button></div>
