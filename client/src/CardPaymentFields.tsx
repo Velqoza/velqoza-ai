@@ -25,7 +25,7 @@ function loadSandboxSdk(src:string){
   }
   return paypalSdkLoader
 }
-export function CardPaymentFields({requestId,amountCents,onSuccess}:{requestId:string;amountCents:number;onSuccess:(orderId:string)=>void}){
+export function CardPaymentFields({requestId,amountCents,onSuccess,onOldOrder}:{requestId:string;amountCents:number;onSuccess:(orderId:string)=>void;onOldOrder:()=>void}){
   const numberRef=useRef<HTMLDivElement>(null),expiryRef=useRef<HTMLDivElement>(null),cvvRef=useRef<HTMLDivElement>(null)
   const sessionRef=useRef<CardSession|null>(null)
   const [state,setState]=useState<'loading'|'ready'|'unavailable'>('loading')
@@ -73,7 +73,11 @@ export function CardPaymentFields({requestId,amountCents,onSuccess}:{requestId:s
       // and verify the exact immutable amount and grant Credits.
       await api.captureCheckout(order.orderId)
       onSuccess(order.orderId)
-    }catch(err){setError(err instanceof Error?err.message:'Could not complete card checkout. Check payment status before retrying.')}
+    }catch(err){
+      const message=err instanceof Error?err.message:'Could not complete card checkout. Check payment status before retrying.'
+      setError(message)
+      if(message.includes('previous PayPal test app'))onOldOrder()
+    }
     finally{setBusy(false)}
   }
   return <section style={{marginTop:14,padding:'18px',border:'1px solid #5e4b7d',background:'#161027',borderRadius:13}}>
