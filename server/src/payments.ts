@@ -78,6 +78,24 @@ export async function diagnoseLivePayPal():Promise<LiveDiagnosticResult>{
   return {checks,allPassed:checks.every(x=>x.ok),checkoutStillDisabled:!paypalReady()}
 }
 
+// Only sandbox card testing is enabled until merchant eligibility and 3DS
+// outcomes have been verified and explicitly authorized for production.
+export const cardFieldsSandboxEnabled=()=>paypalMode()==='sandbox'&&process.env.RENDER_SERVICE_ID==='srv-dbs3comi0phs73c0s1dg'
+export async function paypalBrowserClientToken():Promise<string>{
+  if(!cardFieldsSandboxEnabled())throw new Error('Card Fields testing is not available in this environment.')
+  const client=process.env.PAYPAL_CLIENT_ID!,secret=process.env.PAYPAL_CLIENT_SECRET!
+  const r=await fetch('https://api-m.sandbox.paypal.com/v1/oauth2/token',{
+    method:'POST',
+    headers:{Authorization:'Basic '+Buffer.from(client+':'+secret).toString('base64'),'Content-Type':'application/x-www-form-urlencoded'},
+    body:'grant_type=client_credentials&response_type=client_token&intent=sdk_init',
+    signal:AbortSignal.timeout(15000)
+  })
+  if(!r.ok)throw new Error('PayPal cannot initialize Sandbox Card Fields.')
+  const result=await r.json() as {access_token?:string}
+  if(!result.access_token)throw new Error('PayPal did not return a Card Fields token.')
+  return result.access_token
+}
+
 export function paypalReady(){return paypalMode()!==null}
 const paypalBase=()=>paypalMode()==='live'?'https://api-m.paypal.com':'https://api-m.sandbox.paypal.com'
 type PayPalOrder={id?:string;status?:string;links?:{href:string;rel:string}[];purchase_units?:{reference_id?:string;custom_id?:string;amount?:{currency_code?:string;value?:string};payments?:{captures?:{id?:string;status?:string;amount?:{currency_code?:string;value?:string}}[]}}[]}
@@ -214,16 +232,26 @@ export function validatedGrants(raw:string,paidCents:number):PaymentGrants {
   if(grants.credits+grants.messages+grants.edits+grants.generations<=0)throw new Error('Payment snapshot has no entitlements.')
   return grants
 }
-export async function createCheckout(paymentId:string,cents:number,description:string,returnOrigin:string){
+export async function createCheckout(paymentId:string,cents:number,description:string,returnOrigin:string,method:'paypal'|'card'='paypal'){
   if(cents<50||cents>1_000_000)throw new Error('Checkout supports orders from $0.50 to $10,000. Please reduce the selected quantities.')
   const result=await paypalRequest('POST','/v2/checkout/orders',{
     intent:'CAPTURE',
     purchase_units:[{reference_id:paymentId,custom_id:paymentId,description:description.slice(0,120),amount:{currency_code:'USD',value:(cents/100).toFixed(2)}}],
-    payment_source:{paypal:{experience_context:{brand_name:'VELQOZA AI',shipping_preference:'NO_SHIPPING',user_action:'PAY_NOW',
-      return_url:returnOrigin+'/?payment=return',cancel_url:returnOrigin+'/?payment=cancel'}}}
+    ...(method==='paypal'?{payment_source:{paypal:{experience_context:{brand_name:'VELQOZA AI',shipping_preference:'NO_SHIPPING',user_action:'PAY_NOW',
+      return_url:returnOrigin+'/?payment=return',cancel_url:returnOrigin+'/?payment=cancel'}}}}:{})
   },'create-'+paymentId)
   if(!result.id)throw new Error('PayPal did not return an order ID.')
-  return {orderId:result.id,approvalUrl:validatedApprovalUrl(result)}
+  return {orderId:result.id,approvalUrl:method==='paypal'?validatedApprovalUrl(result):null}
+}
+export async function resumeCardCheckout(orderId:string,paymentId:string,expectedCents:number){
+  if(!cardFieldsSandboxEnabled())throw new Error('Sandbox Card Fields are not available.')
+  const order=await retrieveCompletedCheckout(orderId)
+  if(order.id!==orderId||!['CREATED','PAYER_ACTION_REQUIRED','SAVED'].includes(order.status||''))throw new Error('This payment cannot be resumed.')
+  const units=order.purchase_units||[]
+  if(units.length!==1||units[0].reference_id!==paymentId||units[0].custom_id!==paymentId||
+     units[0].amount?.currency_code!=='USD'||!/^[0-9]+\\.[0-9]{2}$/.test(units[0].amount?.value||'')||
+     Math.round(Number(units[0].amount?.value)*100)!==expectedCents)throw new Error('Stored order does not match the quoted amount.')
+  return {orderId,approvalUrl:null}
 }
 export function validatedApprovalUrl(order:PayPalOrder):string{
   const href=order.links?.find(link=>link.rel==='payer-action'||link.rel==='approve')?.href
