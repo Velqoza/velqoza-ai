@@ -243,6 +243,8 @@ export default function App() {
   const [adminData,setAdminData]=useState<Awaited<ReturnType<typeof api.adminOverview>>|null>(null)
   const [adminSearch,setAdminSearch]=useState('')
   const [adminPaymentReadiness,setAdminPaymentReadiness]=useState<Awaited<ReturnType<typeof api.adminPaymentReadiness>>|null>(null)
+  const [adminPayPalDiagnostics,setAdminPayPalDiagnostics]=useState<Awaited<ReturnType<typeof api.adminPayPalDiagnostics>>|null>(null)
+  const [adminPayPalCheckBusy,setAdminPayPalCheckBusy]=useState(false)
   const [adminPayments,setAdminPayments]=useState<Awaited<ReturnType<typeof api.adminPayments>>['payments']>([])
   const [adminPaymentReview,setAdminPaymentReview]=useState<Awaited<ReturnType<typeof api.adminPaymentsReview>>['payments']>([])
   const [adminBusy,setAdminBusy]=useState(false)
@@ -1130,6 +1132,19 @@ export default function App() {
       <p>Checks describe configuration only; they do not approve real-money checkout.</p>
       {adminPaymentReadiness?.checks.map(check=><p key={check.label}><strong>{check.ok?'✓':'○'} {check.label}</strong> — {check.ok?'Configured':'Needs attention'}</p>)}
       {adminPaymentReadiness&&<p>{adminPaymentReadiness.note}</p>}
+      <div style={{margin:'12px 0',padding:'12px',border:'1px solid rgba(180,135,255,.25)',borderRadius:10}}>
+        <button className="outline-btn" disabled={adminPayPalCheckBusy} onClick={()=>void (async()=>{
+          setAdminPayPalCheckBusy(true);setAdminError('');setAdminPayPalDiagnostics(null)
+          try{setAdminPayPalDiagnostics(await api.adminPayPalDiagnostics())}
+          catch(err){setAdminError(err instanceof Error?err.message:'Live PayPal diagnostics failed.')}
+          finally{setAdminPayPalCheckBusy(false)}
+        })()}>{adminPayPalCheckBusy?'Checking PayPal Live…':'Verify Live PayPal connection (no charge)'}</button>
+        <p style={{fontSize:12,opacity:.8,margin:'8px 0'}}>Read-only OAuth and registered webhook checks. This does not charge any money, simulate a purchase, or enable checkout.</p>
+        {adminPayPalDiagnostics&&<div role="status" style={{marginTop:10}}>
+          {adminPayPalDiagnostics.checks.map(check=><p key={check.label} style={{margin:'5px 0'}}><strong>{check.ok?'✓':'○'} {check.label}</strong> — {check.detail}</p>)}
+          <p><strong>{adminPayPalDiagnostics.allPassed?'Live credentials and webhook configuration verified.':'Some configuration checks failed.'}</strong> Checkout remains {adminPayPalDiagnostics.checkoutStillDisabled?'disabled':'enabled'}; real capture and webhook delivery have not been tested.</p>
+        </div>}
+      </div>
       <h3>PayPal payment review</h3>
       <p>Read-only records. Any refund, reversal or dispute needs manual review in the PayPal merchant dashboard. Never change Credits based on an unverified payment.</p>
       <p><strong>{adminPaymentReview.length}</strong> payment record(s) flagged for review</p>
