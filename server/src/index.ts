@@ -249,6 +249,7 @@ app.get('/api/packages/requests/:id/checkout-summary',requireAuth,(req:AuthReque
     return res.json({order:{
       id:request.id,status:request.status,createdAt:request.created_at,
       packageName:selection.type==='package'?(PACKAGES.find(p=>p.id===selection.packageId)?.label||'Package'):'Custom package',
+      selection,
       currency:'USD',amountCents:quotedCents,priceChanged:grants.amountCents!==quotedCents,
       credits:grants.credits,messages:grants.messages,edits:grants.edits,generations:grants.generations,
       checkoutEnabled:paypalReady(),paymentMode:paypalMode()
@@ -334,7 +335,13 @@ app.post('/api/packages/checkout',requireAuth,rateLimit({windowMs:60*60_000,limi
     res.json({orderId:order.orderId,approvalUrl:order.approvalUrl,sandbox:paypalMode()==='sandbox',paymentMode:paypalMode()})
   }catch(error){
     console.error('PayPal order create/resume failed',error)
-    res.status(502).json({error:'Could not open the PayPal order. If you completed payment, use Check completed payment; otherwise contact support.'})
+    if(existing?.paypal_order_id&&paypalMode()==='sandbox'&&error instanceof Error&&error.message.includes('PayPal returned an error (404)')){
+      // The app's merchant credentials can no longer see an order created with
+      // the old Sandbox merchant. Never delete, capture or relink the old row.
+      return res.status(409).json({code:'SANDBOX_ORDER_APP_CHANGED',
+        error:'This unfinished Sandbox checkout belongs to the previous PayPal test app. Start a new Sandbox order. The previous payment record is kept for review.'})
+    }
+    res.status(502).json({error:'Could not open the PayPal order. If you completed payment, use payment recovery; otherwise contact support.'})
   }
 })
 app.post('/api/packages/checkout/capture',requireAuth,rateLimit({windowMs:60*60_000,limit:8,standardHeaders:'draft-7',legacyHeaders:false}),async(req:AuthRequest,res)=>{
