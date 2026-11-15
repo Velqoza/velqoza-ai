@@ -249,7 +249,7 @@ export async function resumeCardCheckout(orderId:string,paymentId:string,expecte
   if(order.id!==orderId||!['CREATED','PAYER_ACTION_REQUIRED','SAVED'].includes(order.status||''))throw new Error('This payment cannot be resumed.')
   const units=order.purchase_units||[]
   if(units.length!==1||units[0].reference_id!==paymentId||units[0].custom_id!==paymentId||
-     units[0].amount?.currency_code!=='USD'||!/^[0-9]+\\.[0-9]{2}$/.test(units[0].amount?.value||'')||
+     units[0].amount?.currency_code!=='USD'||!/^[0-9]+\.[0-9]{2}$/.test(units[0].amount?.value||'')||
      Math.round(Number(units[0].amount?.value)*100)!==expectedCents)throw new Error('Stored order does not match the quoted amount.')
   return {orderId,approvalUrl:null}
 }
