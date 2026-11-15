@@ -276,6 +276,7 @@ export default function App() {
   const initiatePayPalPayment=async(requestId:string)=>{
     if(!packageCatalog?.checkoutEnabled)return
     const result=await api.startCheckout(requestId)
+    if(!result.approvalUrl)throw new Error('PayPal approval link is unavailable for this order.')
     const url=new URL(result.approvalUrl)
     if(url.protocol!=='https:'||url.hostname!==(result.paymentMode==='live'?'www.paypal.com':'www.sandbox.paypal.com'))throw new Error('Unexpected PayPal checkout destination.')
     window.location.assign(url.href)
