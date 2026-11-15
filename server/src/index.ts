@@ -190,6 +190,11 @@ app.get('/api/health', (_req,res) => {
     db.prepare('SELECT user_id FROM usage_quotas LIMIT 0').all()
     db.prepare('SELECT id FROM credit_ledger LIMIT 0').all()
     db.prepare('SELECT user_id FROM credit_wallets LIMIT 0').all()
+    if(process.env.VELQOZA_PRIMARY_DB==='supabase'){
+      const actual=db.prepare('SELECT current_schema() AS schema').get() as {schema:string}|undefined
+      const expected=process.env.VELQOZA_DB_SCHEMA||'velqoza_ai'
+      if(actual?.schema!==expected)throw new Error('Connected PostgreSQL schema does not match deployment role.')
+    }
     res.json({ok:true, database:'ready', aiConfigured:Boolean(process.env.OPENAI_API_KEY)})
   } catch (error) {
     console.error('Database health check failed', error)
