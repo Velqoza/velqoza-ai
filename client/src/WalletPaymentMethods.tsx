@@ -31,6 +31,8 @@ async function loadSdk(url:string){
   await promise
 }
 export function WalletPaymentMethods({requestId,amountCents,onSuccess}:{requestId:string;amountCents:number;onSuccess:(orderId:string)=>void}){
+  const successRef=useRef(onSuccess)
+  successRef.current=onSuccess
   const googleButtonRef=useRef<HTMLDivElement>(null)
   const appleButtonRef=useRef<HTMLDivElement>(null)
   const [googleReady,setGoogleReady]=useState(false)
@@ -66,7 +68,7 @@ export function WalletPaymentMethods({requestId,amountCents,onSuccess}:{requestI
                     const result=await session.confirmOrder({orderId:order.orderId,paymentMethodData:paymentData.paymentMethodData})
                     if(result.status!=='APPROVED')throw Error('Additional verification required. No payment was captured.')
                     await api.captureCheckout(order.orderId)
-                    if(active)onSuccess(order.orderId)
+                    if(active)successRef.current(order.orderId)
                     return {transactionState:'SUCCESS'}
                   }catch(err){
                     if(active)setError(err instanceof Error?err.message:'Google Pay could not confirm the payment.')
@@ -119,7 +121,7 @@ export function WalletPaymentMethods({requestId,amountCents,onSuccess}:{requestI
                         await provider.confirmOrder({orderId:order.orderId,token:event.payment.token,billingContact:event.payment.billingContact,shippingContact:event.payment.shippingContact})
                         await api.captureCheckout(order.orderId)
                         native.completePayment({status:appleCtor.STATUS_SUCCESS})
-                        onSuccess(order.orderId)
+                        successRef.current(order.orderId)
                       }catch(err){
                         native.completePayment({status:appleCtor.STATUS_FAILURE})
                         setError(err instanceof Error?err.message:'Apple Pay could not confirm the payment.')
@@ -141,7 +143,7 @@ export function WalletPaymentMethods({requestId,amountCents,onSuccess}:{requestI
     }
     void init()
     return()=>{active=false}
-  },[requestId,price,onSuccess])
+  },[requestId,price])
   return <section style={{display:'grid',gap:10}}>
     <div ref={googleButtonRef} style={{display:googleReady?'block':'none',minHeight:googleReady?44:0}}/>
     <div ref={appleButtonRef} style={{display:appleReady?'block':'none'}}/>
