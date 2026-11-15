@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import JSZip from 'jszip'
 import { ArrowRight, ArrowUpRight, Sparkles, WandSparkles, Code2, Eye, Layers3, ShieldCheck, Zap, Menu, X, Monitor, Tablet, Smartphone, Download, Save, FolderOpen, Plus, MessageSquare, Send, LogOut, Trash2, Pencil, ChevronDown, Check, LoaderCircle, Globe2, Rocket, Palette, LayoutTemplate, ExternalLink, Copy, CircleHelp, Plug, PanelLeftClose, PanelLeftOpen, Search, BrainCircuit, Settings2, FileCode2, RotateCcw, FolderTree, UserRound, UserPlus, KeyRound, RefreshCw, UsersRound } from 'lucide-react'
 import { api } from './api'
+import {downloadReceiptPdf,type VerifiedReceipt} from './receipt'
 import { translate, isUiLanguage, isRtlLanguage, languageOptions, LANGUAGE_STORAGE_KEY, type UiLanguage } from './i18n'
 import type { Project, SiteCode, User, StudioThread, StudioMessage, StudioPlugin } from './types'
 
@@ -50,6 +51,44 @@ function UsageItem({item,label,compact=false}:{item:UsageState['usage'][UsageKin
   const available=Math.max(0,item.remaining)+Math.max(0,item.purchasedRemaining)
   if(compact)return <span className="usage-available" aria-live="polite">{label}: <strong>{available.toLocaleString()}</strong></span>
   return <div className="usage-available usage-available-full" aria-live="polite"><strong>{label}</strong><span>{available.toLocaleString()} available</span></div>
+}
+
+function PurchaseSuccessPage({user,openLogin}:{user:User|null;openLogin:()=>void}){
+  const orderId=new URLSearchParams(window.location.search).get('order')||''
+  const [receipt,setReceipt]=useState<VerifiedReceipt|null>(null)
+  const [error,setError]=useState('')
+  const [loading,setLoading]=useState(true)
+  const [retry,setRetry]=useState(0)
+  useEffect(()=>{
+    if(!user){setLoading(false);return}
+    let active=true
+    setLoading(true);setError('')
+    void api.paymentReceipt(orderId).then(result=>{if(active)setReceipt(result.receipt)})
+      .catch(err=>{if(active)setError(err instanceof Error?err.message:'Could not load this receipt.')})
+      .finally(()=>{if(active)setLoading(false)})
+    return ()=>{active=false}
+  },[user?.id,orderId,retry])
+  return <div style={{minHeight:'100vh',background:'radial-gradient(ellipse at 50% 10%,#301a51 0%,#120e23 45%,#090713 100%)',color:'#f8f4ff',fontFamily:'Inter,system-ui,sans-serif',padding:'32px 18px',display:'flex',alignItems:'center',justifyContent:'center'}}>
+    <main style={{width:'100%',maxWidth:640,border:'1px solid #50416d',borderRadius:24,background:'rgba(24,18,42,.94)',boxShadow:'0 30px 100px rgba(0,0,0,.4)',padding:'clamp(24px,5vw,48px)',textAlign:'center'}}>
+      <div style={{letterSpacing:3,color:'#c9aaff',fontWeight:800,marginBottom:28}}>✦ VELQOZA AI</div>
+      {loading?<><div style={{fontSize:36}}>◌</div><h1>Verifying your receipt…</h1><p>Your payment information is being loaded securely.</p></>:
+       !user?<><h1>Sign in to view your receipt</h1><p>This receipt is only visible to the purchasing account.</p><button className="generate-btn" onClick={openLogin}>Sign in</button></>:
+       error||!receipt?<><h1>Receipt unavailable</h1><p role="alert">{error||'Could not find this verified payment.'}</p><button className="outline-btn" onClick={()=>setRetry(n=>n+1)}>Try again</button></>:
+       <><div style={{width:76,height:76,borderRadius:'50%',background:'linear-gradient(135deg,#6e45c4,#3baf89)',display:'grid',placeItems:'center',margin:'0 auto 20px',fontSize:42}}>✓</div>
+         <h1 style={{fontSize:'clamp(30px,5vw,44px)',margin:'0 0 10px'}}>Purchase Successful!</h1>
+         <p style={{color:'#bdb2d5',marginBottom:30}}>Your payment is confirmed and your Credits are ready to use.</p>
+         <div style={{textAlign:'left',background:'#171126',border:'1px solid #44345e',borderRadius:14,padding:22,display:'grid',gap:13,marginBottom:26}}>
+           <div style={{display:'flex',justifyContent:'space-between',gap:12}}><span>Package</span><strong>{receipt.packageName}</strong></div>
+           <div style={{display:'flex',justifyContent:'space-between',gap:12}}><span>Amount paid</span><strong>{receipt.currency} {(receipt.amountCents/100).toFixed(2)}</strong></div>
+           <div style={{display:'flex',justifyContent:'space-between',gap:12}}><span>Credits added</span><strong>+{receipt.credits.toLocaleString()}</strong></div>
+           <div style={{display:'flex',justifyContent:'space-between',gap:12}}><span>Payment date</span><strong>{new Date(receipt.paidAt).toLocaleString()}</strong></div>
+           <div style={{borderTop:'1px solid #44345e',paddingTop:12,fontSize:12,overflowWrap:'anywhere',color:'#bdb2d5'}}>PayPal order: {receipt.orderId}</div>
+         </div>
+         <button className="generate-btn" style={{width:'100%',marginBottom:12,justifyContent:'center'}} onClick={()=>downloadReceiptPdf(receipt)}><Download size={18}/> Download Receipt (PDF)</button>
+       </>}
+      <a href="/" style={{display:'inline-block',marginTop:18,color:'#c9acff',textDecoration:'none'}}>← Back to VELQOZA AI</a>
+    </main>
+  </div>
 }
 
 export default function App() {
@@ -203,7 +242,8 @@ export default function App() {
         setWalletBalance(wallet.balance);setWalletInfo(wallet);setPackageRequestHistory(requests.requests);setPackageCatalog(catalog)
         setPackageFeedback('PayPal payment verified. Your purchased Credits and AI usage quotas are now available.')
         void refreshUsage()
-        window.history.replaceState({},'',window.location.pathname+window.location.hash)
+        // Navigate only after server confirmation, never on an unverified return.
+        window.location.replace('/purchase-success?order='+encodeURIComponent(orderId))
       }catch(error){
         setPackageFeedback((error instanceof Error?error.message:'Payment verification failed.')+' Reload the return URL to retry verification. No unverified benefits are granted.')
       }
@@ -946,6 +986,9 @@ export default function App() {
   const projectCount = projects.length
   const filteredStudioThreads = studioThreads.filter(t=>t.title.toLowerCase().includes(threadSearch.toLowerCase()))
 
+  if(window.location.pathname==='/purchase-success'){
+    return <PurchaseSuccessPage user={user} openLogin={()=>{window.location.assign('/?login=1')}}/>
+  }
   return <div className="app-shell" dir={isRtlLanguage(uiLanguage)?'rtl':'ltr'} lang={uiLanguage}>
     <header className="topbar">
       <a href="#" className="brand" onClick={(event) => {if (changed && !window.confirm('Unsaved project changes. Leave editor?')) {event.preventDefault();return};setTab('builder');setCode(null)}}><span className="brand-mark"><Sparkles size={18}/></span><span>VELQOZA<span className="brand-ai"> AI</span></span></a>
