@@ -66,7 +66,8 @@ export function WalletPaymentMethods({requestId,amountCents,onSuccess}:{requestI
                   try{
                     const order=await api.startCheckout(requestId,'googlepay')
                     const result=await session.confirmOrder({orderId:order.orderId,paymentMethodData:paymentData.paymentMethodData})
-                    if(result.status!=='APPROVED')throw Error('Additional verification required. No payment was captured.')
+                    if(result.status==='PAYER_ACTION_REQUIRED')throw Error('Additional payer authentication is required; payment was not captured.')
+                    if(!['APPROVED','COMPLETED'].includes(result.status))throw Error('Google Pay confirmation was not approved. No payment was captured.')
                     await api.captureCheckout(order.orderId)
                     if(active)successRef.current(order.orderId)
                     return {transactionState:'SUCCESS'}
@@ -83,7 +84,7 @@ export function WalletPaymentMethods({requestId,amountCents,onSuccess}:{requestI
                 void client.loadPaymentData({
                   ...config,transactionInfo:{countryCode:config.countryCode,currencyCode:'USD',totalPriceStatus:'FINAL',totalPrice:price},
                   callbackIntents:['PAYMENT_AUTHORIZATION']
-                }).catch(()=>{if(active)setError('Google Pay was canceled or is unavailable on this device.')})
+                }).catch((err:unknown)=>{if(active){const detail=err instanceof Error?err.message:'';setError(detail.includes('OR_BIBED_06')?'Google Pay rejected this merchant or payment gateway configuration (OR_BIBED_06). The Sandbox integration needs review. No payment was completed.':'Google Pay could not open a valid payment method. If the wallet says OR_BIBED_06, the provider configuration must be checked.')}})
               }})
               googleButtonRef.current.replaceChildren(button)
               setGoogleReady(true)
