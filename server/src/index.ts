@@ -292,7 +292,7 @@ app.delete('/api/packages/requests/:id',requireAuth,(req:AuthRequest,res)=>{
 // Browser-safe token from PayPal; never expose the merchant client secret.
 app.get('/api/packages/card-fields-token',requireAuth,rateLimit({windowMs:60_000,limit:5,standardHeaders:'draft-7',legacyHeaders:false}),async(_req,res)=>{
   if(!cardFieldsSandboxEnabled())return res.status(503).json({error:'Card Fields testing is only available on Sandbox Staging.'})
-  try{res.setHeader('Cache-Control','no-store');res.json({clientToken:await paypalBrowserClientToken(),sdkUrl:'https://www.sandbox.paypal.com/web-sdk/v6/core'})}
+  try{res.setHeader('Cache-Control','no-store');res.json({clientToken:await paypalBrowserClientToken(),clientId:process.env.PAYPAL_CLIENT_ID!,sdkUrl:'https://www.sandbox.paypal.com/web-sdk/v6/core'})}
   catch(error){console.error('Sandbox Card Fields initialization failed',error);res.status(503).json({error:'PayPal Card Fields is not enabled for this Sandbox merchant or could not initialize.'})}
 })
 // PayPal checkout: staging Sandbox or explicitly authorized production Live. Immutable snapshots at order
