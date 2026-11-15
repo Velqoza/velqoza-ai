@@ -190,6 +190,8 @@ export default function App() {
   const [walletOpen, setWalletOpen] = useState(false)
   const [packageCatalog,setPackageCatalog]=useState<Awaited<ReturnType<typeof api.packagesCatalog>>|null>(null)
   const [packageRequestHistory,setPackageRequestHistory]=useState<{id:string;selection:unknown;status:string;createdAt:string}[]>([])
+  const [pendingOrderError,setPendingOrderError]=useState('')
+  const [pendingOrderBusy,setPendingOrderBusy]=useState(false)
   const [receiptOrders,setReceiptOrders]=useState<{requestId:string;orderId:string}[]>([])
   const [packageTab,setPackageTab]=useState<'bundles'|'custom'>('bundles')
   const [packageQuantities,setPackageQuantities]=useState({credits:10,messages:0,edits:0,generations:0})
@@ -234,6 +236,29 @@ export default function App() {
     if (!user) { setWalletBalance(null);setWalletInfo(null);return }
     void refreshWallet()
   }, [user])
+  // Refresh the latest unfinished checkout whenever an account signs in.
+  // The server owns the list; never infer payment status from local storage.
+  useEffect(()=>{
+    if(!user){setPackageRequestHistory([]);setPendingOrderError('');return}
+    const sessionToken=api.token()
+    let active=true
+    setPackageRequestHistory([]);setPendingOrderError('')
+    void api.packageRequests().then(result=>{
+      if(active&&api.token()===sessionToken)setPackageRequestHistory(result.requests)
+    }).catch(()=>{if(active)setPendingOrderError('Could not check unfinished orders. Reload to try again.')})
+    return ()=>{active=false}
+  },[user?.id])
+  const newestPendingOrder=packageRequestHistory.find(request=>request.status==='pending')
+  const cancelFromBanner=async(requestId:string)=>{
+    if(pendingOrderBusy||!window.confirm('Cancel this unfinished order? This action cannot be undone. No completed purchase will be cancelled.'))return
+    setPendingOrderBusy(true);setPendingOrderError('')
+    try{
+      await api.cancelPackageRequest(requestId)
+      setPackageRequestHistory(previous=>previous.filter(request=>request.id!==requestId))
+    }catch(error){
+      setPendingOrderError(error instanceof Error?error.message:'Could not cancel this order. If a PayPal order already exists, use Continue to recover or complete it safely.')
+    }finally{setPendingOrderBusy(false)}
+  }
   const showWallet=async () => {
     setWalletOpen(true);setPackageFeedback('')
     try {
@@ -770,6 +795,7 @@ export default function App() {
     setProjects([]);setActive(null);setCode(null);setProjectName('');setTab('builder')
     setStudioThreads([]);setStudioActive(null);setStudioMessages([]);setMessages([])
     setWalletBalance(null);setWalletInfo(null);setShowProjects(false);setWalletOpen(false)
+    setPackageRequestHistory([]);setPendingOrderError('')
     setAdminOpen(false);setSaveStatus('idle');setSaveError('');setUndoStack([])
   }
   const switchAccount=async (target:ReturnType<typeof api.savedAccounts>[number])=>{
@@ -1092,6 +1118,17 @@ export default function App() {
       <button className="mobile-menu-btn" aria-label={mobileMenu?t("Close"):t("Menu")} aria-expanded={mobileMenu} onClick={()=>setMobileMenu(!mobileMenu)}>{mobileMenu?<X size={22}/>:<Menu size={22}/>}</button>
     </header>
 
+    {user&&newestPendingOrder&&<div role="region" aria-label="Unfinished order" style={{width:'min(100% - 24px,1280px)',margin:'12px auto 0',padding:'13px 17px',background:'linear-gradient(110deg,#251a3b,#181225)',border:'1px solid #60477f',borderRadius:13,display:'flex',gap:14,justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',color:'#f3eaff'}}>
+      <div style={{display:'grid',gap:4,minWidth:180}}>
+        <strong style={{fontSize:14}}>Your last order is unfinished</strong>
+        <span style={{fontSize:12,color:'#bcb0d2'}}>Order #{newestPendingOrder.id.slice(0,8).toUpperCase()} · Payment not yet confirmed</span>
+      </div>
+      <div style={{display:'flex',gap:9,alignItems:'center',flexWrap:'wrap'}}>
+        <button type="button" disabled={pendingOrderBusy} onClick={()=>void cancelFromBanner(newestPendingOrder.id)} style={{padding:'9px 16px',background:'transparent',color:'#ffd4dc',border:'1px solid #865c78',borderRadius:9,cursor:'pointer'}}>Cancel</button>
+        <button type="button" disabled={pendingOrderBusy} onClick={()=>window.location.assign('/checkout?request='+encodeURIComponent(newestPendingOrder.id))} style={{padding:'9px 19px',background:'#c9a9ff',color:'#150c29',fontWeight:800,border:0,borderRadius:9,cursor:'pointer'}}>Continue <ArrowRight size={14} style={{verticalAlign:'middle'}}/></button>
+      </div>
+      {pendingOrderError&&<div role="alert" style={{width:'100%',fontSize:12,color:'#ffb5bd'}}>{pendingOrderError}</div>}
+    </div>}
     {tab === 'studio' ? <main className="studio-shell">
       <div className={`studio-sidebar ${studioSidebarOpen?'':'hidden'}`}>
         <div className="studio-branding"><div className="studio-brand-icon"><Sparkles size={19}/></div><span><strong>VELQOZA Studio</strong><small>{t("YOUR AI WORKSPACE")}</small></span><button className="studio-sidebar-toggle" onClick={()=>setStudioSidebarOpen(false)} title="Collapse sidebar"><PanelLeftClose size={18}/></button></div>
