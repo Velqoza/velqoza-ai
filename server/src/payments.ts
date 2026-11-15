@@ -238,7 +238,8 @@ export async function createCheckout(paymentId:string,cents:number,description:s
     intent:'CAPTURE',
     purchase_units:[{reference_id:paymentId,custom_id:paymentId,description:description.slice(0,120),amount:{currency_code:'USD',value:(cents/100).toFixed(2)}}],
     ...(method==='paypal'?{payment_source:{paypal:{experience_context:{brand_name:'VELQOZA AI',shipping_preference:'NO_SHIPPING',user_action:'PAY_NOW',
-      return_url:returnOrigin+'/?payment=return',cancel_url:returnOrigin+'/?payment=cancel'}}}}:{})
+      return_url:returnOrigin+'/?payment=return',cancel_url:returnOrigin+'/?payment=cancel'}}}}
+      :method==='googlepay'?{payment_source:{google_pay:{attributes:{verification:{method:'SCA_WHEN_REQUIRED'}}}}}:{})
   },'create-'+paymentId)
   if(!result.id)throw new Error('PayPal did not return an order ID.')
   return {orderId:result.id,approvalUrl:method==='paypal'?validatedApprovalUrl(result):null}
