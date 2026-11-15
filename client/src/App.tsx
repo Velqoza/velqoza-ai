@@ -91,6 +91,78 @@ function PurchaseSuccessPage({user,openLogin}:{user:User|null;openLogin:()=>void
   </div>
 }
 
+function CheckoutPage({user}:{user:User|null}){
+  const requestId=new URLSearchParams(window.location.search).get('request')||''
+  const [data,setData]=useState<Awaited<ReturnType<typeof api.checkoutSummary>>['order']|null>(null)
+  const [error,setError]=useState('')
+  const [busy,setBusy]=useState<'paypal'|'card'|null>(null)
+  const [loading,setLoading]=useState(true)
+  useEffect(()=>{
+    if(!user){setLoading(false);return}
+    let active=true
+    setLoading(true)
+    void api.checkoutSummary(requestId).then(result=>{if(active)setData(result.order)})
+      .catch(err=>{if(active)setError(err instanceof Error?err.message:'Unable to load your order.')})
+      .finally(()=>{if(active)setLoading(false)})
+    return ()=>{active=false}
+  },[requestId,user?.id])
+  const pay=async(method:'paypal'|'card')=>{
+    if(!data||busy||data.status!=='pending'||!data.checkoutEnabled||data.priceChanged)return
+    setBusy(method);setError('')
+    try{
+      const result=await api.startCheckout(data.id)
+      const url=new URL(result.approvalUrl)
+      if(url.protocol!=='https:'||url.hostname!==(result.paymentMode==='live'?'www.paypal.com':'www.sandbox.paypal.com'))
+        throw new Error('Unexpected payment destination.')
+      // Card-guest checkout is offered at PayPal's discretion. Both buttons use
+      // the same PCI-compliant PayPal-hosted page; no card data is collected here.
+      window.location.assign(url.href)
+    }catch(err){setError(err instanceof Error?err.message:'Could not open secure checkout.');setBusy(null)}
+  }
+  const row=(label:string,value:string)=>(
+    <div style={{display:'flex',gap:14,justifyContent:'space-between',alignItems:'baseline',padding:'9px 0',borderBottom:'1px solid #352b48'}}>
+      <span style={{color:'#beb4d2'}}>{label}</span><strong style={{textAlign:'right'}}>{value}</strong>
+    </div>
+  )
+  return <div style={{minHeight:'100vh',background:'radial-gradient(ellipse at 50% 0%,#301952 0%,#120e22 46%,#090713 100%)',color:'#f8f4ff',fontFamily:'Inter,system-ui,sans-serif',padding:'35px 16px',display:'flex',alignItems:'center',justifyContent:'center'}}>
+    <main style={{width:'100%',maxWidth:680,padding:'clamp(22px,5vw,42px)',background:'#19132a',border:'1px solid #534172',borderRadius:22,boxShadow:'0 25px 90px #0007'}}>
+      <div style={{color:'#c7abff',fontWeight:800,letterSpacing:2,marginBottom:16}}>✦ VELQOZA AI</div>
+      <h1 style={{fontSize:'clamp(29px,5vw,40px)',margin:'0 0 8px'}}>Secure Checkout</h1>
+      <p style={{color:'#b7aeca',margin:'0 0 25px'}}>Review your order, then choose how you'd like to pay.</p>
+      {!user?<p role="alert">Please sign in to the account that created this order. <a href="/" style={{color:'#cbb5ff'}}>Return to sign in</a></p>:
+       loading?<p>Loading your order…</p>:
+       data?<div style={{background:'#140f23',border:'1px solid #443356',borderRadius:15,padding:22}}>
+         <div style={{fontSize:12,letterSpacing:2,color:'#bba2ec',fontWeight:700,marginBottom:8}}>ORDER DETAILS</div>
+         {row('Package',data.packageName)}
+         {row('Credits',data.credits.toLocaleString())}
+         {row('AI Messages',data.messages.toLocaleString())}
+         {row('Website Edits',data.edits.toLocaleString())}
+         {row('Website Generations',data.generations.toLocaleString())}
+         {row('Order reference',data.id.slice(0,8).toUpperCase())}
+         <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',marginTop:20,fontSize:21}}><strong>Total</strong><strong>{data.currency} {(data.amountCents/100).toFixed(2)}</strong></div>
+         <div style={{marginTop:25,borderTop:'1px solid #47375d',paddingTop:22}}>
+           <h2 style={{fontSize:18,margin:'0 0 16px'}}>Choose a payment method</h2>
+           {data.status!=='pending'?<p role="status">This order is {data.status}. Please return to your account for its receipt or status.</p>:
+            data.priceChanged?<p role="alert">Pricing changed since your quote. Please create a new order before paying.</p>:
+            !data.checkoutEnabled?<p role="status">Secure checkout is not available for this environment right now.</p>:
+            <div style={{display:'grid',gap:12}}>
+              <button type="button" disabled={busy!==null} onClick={()=>void pay('paypal')} style={{width:'100%',background:'#f1e8ff',color:'#1b1334',border:0,borderRadius:12,padding:'17px 20px',fontSize:16,fontWeight:800,cursor:busy?'wait':'pointer'}}>
+                {busy==='paypal'?'Opening PayPal…':'Pay with PayPal'}
+              </button>
+              <button type="button" disabled={busy!==null} onClick={()=>void pay('card')} style={{width:'100%',background:'#242039',color:'#f6edff',border:'1px solid #9273be',borderRadius:12,padding:'17px 20px',fontSize:16,fontWeight:800,cursor:busy?'wait':'pointer'}}>
+                {busy==='card'?'Opening secure card checkout…':'Pay with Credit / Debit Card'}
+              </button>
+              <p style={{fontSize:12,color:'#a9a0c1',lineHeight:1.6,margin:0}}>Credit/debit card payments open PayPal's secure checkout. Paying as a guest without a PayPal account is available only when PayPal offers that option. VELQOZA never collects card details.</p>
+              {data.paymentMode==='sandbox'&&<p style={{fontSize:12,color:'#d5b9ff',margin:0}}>Sandbox test mode — no real funds.</p>}
+            </div>}
+         </div>
+       </div>:<p role="alert">Unable to find this order.</p>}
+      {error&&<p role="alert" style={{marginTop:18,color:'#ffc0c0'}}>{error}</p>}
+      <a href="/" style={{display:'inline-block',marginTop:28,color:'#c7adff',textDecoration:'none'}}>← Back to VELQOZA AI</a>
+    </main>
+  </div>
+}
+
 export default function App() {
   const [uiLanguage,setUiLanguage]=useState<UiLanguage>(()=>{
     try {const saved=window.localStorage.getItem(LANGUAGE_STORAGE_KEY);return isUiLanguage(saved)?saved:'en'} catch{return 'en'}
@@ -183,8 +255,8 @@ export default function App() {
       const result=await api.requestPackage(selection)
       setPackageRequestHistory(previous=>[{...result.request,selection},...previous])
       if(packageCatalog?.checkoutEnabled){
-        setPackageFeedback('Opening secure PayPal checkout…')
-        await initiatePayPalPayment(result.request.id)
+        window.location.assign('/checkout?request='+encodeURIComponent(result.request.id))
+        return
       } else {
         setPackageFeedback('Request saved. PayPal checkout is not configured yet; no payment or quota was applied.')
       }
@@ -217,8 +289,8 @@ export default function App() {
   const checkoutExistingRequest=async(requestId:string)=>{
     if(packageRequestBusy)return
     setPackageRequestBusy(true);setPackageFeedback('')
-    try{await initiatePayPalPayment(requestId)}
-    catch(error){setPackageFeedback(error instanceof Error?error.message:'Could not open PayPal checkout')}
+    try{window.location.assign('/checkout?request='+encodeURIComponent(requestId))}
+    catch(error){setPackageFeedback(error instanceof Error?error.message:'Could not open checkout')}
     finally{setPackageRequestBusy(false)}
   }
   useEffect(()=>{
@@ -987,6 +1059,9 @@ export default function App() {
   const projectCount = projects.length
   const filteredStudioThreads = studioThreads.filter(t=>t.title.toLowerCase().includes(threadSearch.toLowerCase()))
 
+  if(window.location.pathname==='/checkout'){
+    return <CheckoutPage user={user}/>
+  }
   if(window.location.pathname==='/purchase-success'){
     return <PurchaseSuccessPage user={user} openLogin={()=>{window.location.assign('/?login=1')}}/>
   }
