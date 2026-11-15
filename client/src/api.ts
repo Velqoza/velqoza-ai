@@ -49,6 +49,7 @@ export const api = {
   adminQuota:(id:string,kind:'studio'|'edit'|'generate',delta:number,reason:string)=>request<{ok:true;remaining:number}>(`/admin/users/${id}/quota`,{method:'POST',body:JSON.stringify({kind,delta,reason})}),
   adminOverview: () => request<{users:{id:string;email:string;createdAt:string;isBanned:number;credits:number;projects:number;conversations:number;messagesRemaining:number;editsRemaining:number;generationsRemaining:number}[];totals:{accounts:number;projects:number;banned:number;outstandingCredits:number}}>('/admin/overview'),
   adminPaymentReadiness:()=>request<{checks:{label:string;ok:boolean}[];configured:boolean;checkoutEnabled:boolean;mode:'live'|'sandbox'|null;note:string}>('/admin/payments/readiness'),
+  adminPayPalDiagnostics:()=>request<{checks:{label:string;ok:boolean;detail:string}[];allPassed:boolean;checkoutStillDisabled:boolean}>('/admin/payments/diagnostics',{method:'POST'}),
   adminPayments:()=>request<{payments:{id:string;userId:string;status:string;amountCents:number;currency:string;paypalOrderId:string|null;paypalCaptureId:string|null;createdAt:string}[]}>('/admin/payments'),
   adminPaymentsReview:()=>request<{payments:{id:string;userId:string;status:string;amountCents:number;currency:string;paypalCaptureId:string|null;createdAt:string;eventType:string|null}[]}>('/admin/payments/review'),
   adminAudit: () => request<{entries:{action:string;detail:string;targetUserId:string|null;createdAt:string}[]}>('/admin/audit'),
