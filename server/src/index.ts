@@ -233,6 +233,23 @@ app.post('/api/packages/requests',requireAuth,rateLimit({windowMs:60*60_000,limi
   res.status(201).json({request:{id,selection:{...selection,pricing},pricing,status:'pending',createdAt},checkoutEnabled:false,message:'Request saved for review; no payment or credits have been processed.'})
 })
 
+// Owners may cancel unpaid quote requests. Never cascade-delete a request
+// associated with a PayPal checkout, even when it is still marked pending.
+app.delete('/api/packages/requests/:id',requireAuth,(req:AuthRequest,res)=>{
+  const parsed=z.string().uuid().safeParse(req.params.id)
+  if(!parsed.success)return res.status(400).json({error:'Invalid package request ID.'})
+  const request=db.prepare('SELECT id,status FROM package_requests WHERE id=? AND user_id=?')
+    .get(parsed.data,req.userId) as {id:string;status:string}|undefined
+  if(!request)return res.status(404).json({error:'Package request not found.'})
+  if(request.status!=='pending')return res.status(409).json({error:'Only pending requests may be cancelled.'})
+  const related=db.prepare('SELECT id FROM package_payments WHERE request_id=? LIMIT 1').get(request.id)
+  if(related)return res.status(409).json({error:'This request has a PayPal order. Use payment recovery or contact support instead of cancelling it.'})
+  const result=db.prepare("DELETE FROM package_requests WHERE id=? AND user_id=? AND status='pending' AND NOT EXISTS (SELECT 1 FROM package_payments WHERE request_id=?)")
+    .run(request.id,req.userId,request.id)
+  if(!result.changes)return res.status(409).json({error:'Request changed; refresh and try again.'})
+  res.json({ok:true})
+})
+
 // PayPal checkout: staging Sandbox or explicitly authorized production Live. Immutable snapshots at order
 // creation; no self-reported price, status or redirect token grants benefits.
 app.post('/api/packages/checkout',requireAuth,rateLimit({windowMs:60*60_000,limit:8,standardHeaders:'draft-7',legacyHeaders:false}),async(req:AuthRequest,res)=>{
