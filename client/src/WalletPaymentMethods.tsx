@@ -12,7 +12,7 @@ type GoogleClient={isReadyToPay:(options:unknown)=>Promise<{result:boolean}>;cre
 type AppleSession={onvalidatemerchant:((event:{validationURL:string})=>void)|null;onpaymentauthorized:((event:{payment:{token:unknown;billingContact?:unknown;shippingContact?:unknown}})=>void)|null;oncancel:(()=>void)|null;
   completeMerchantValidation:(data:unknown)=>void;completePayment:(result:{status:number})=>void;abort:()=>void;begin:()=>void}
 type AppleSessionCtor={new(version:number,request:unknown):AppleSession;canMakePayments:()=>boolean;STATUS_SUCCESS:number;STATUS_FAILURE:number}
-type WalletWindow=Window & {paypal?:{createInstance:(args:{clientToken:string;components:string[];pageType:string})=>Promise<PayPalSdk>};
+type WalletWindow=Window & {paypal?:{createInstance:(args:{clientToken?:string;clientId?:string;components:string[];pageType:string})=>Promise<PayPalSdk>};
   google?:{payments:{api:{PaymentsClient:new(args:unknown)=>GoogleClient}}};ApplePaySession?:AppleSessionCtor}
 const sdkPromises=new Map<string,Promise<void>>()
 async function loadSdk(url:string){
@@ -51,13 +51,15 @@ export function WalletPaymentMethods({requestId,amountCents,onSuccess}:{requestI
         if(!active)return
         const win=window as WalletWindow
         const sdk=await win.paypal!.createInstance({clientToken:settings.clientToken,components:['googlepay-payments','applepay-payments'],pageType:'checkout'})
-        const eligible=await sdk.findEligibleMethods({currencyCode:'USD',amount:price})
+        const googleSdk=await win.paypal!.createInstance({clientId:settings.clientId,components:['googlepay-payments'],pageType:'checkout'})
+        const eligible=await googleSdk.findEligibleMethods({currencyCode:'USD',amount:price})
+        const appleEligible=await sdk.findEligibleMethods({currencyCode:'USD',amount:price})
         if(!active)return
         if(eligible.isEligible('googlepay')){
           try{
             await loadSdk('https://pay.google.com/gp/p/js/pay.js')
             if(!active)return
-            const session=sdk.createGooglePayOneTimePaymentSession()
+            const session=googleSdk.createGooglePayOneTimePaymentSession()
             const config=session.formatConfigForPaymentRequest(eligible.getDetails('googlepay').config)
             const client=new win.google!.payments.api.PaymentsClient({
               environment:'TEST',
@@ -91,7 +93,7 @@ export function WalletPaymentMethods({requestId,amountCents,onSuccess}:{requestI
             }
           }catch{ /* Not eligible on this device; don't show a non-working payment button. */ }
         }
-        if(eligible.isEligible('applepay')&&win.ApplePaySession?.canMakePayments()){
+        if(appleEligible.isEligible('applepay')&&win.ApplePaySession?.canMakePayments()){
           try{
             const provider=sdk.createApplePayOneTimePaymentSession()
             const config=await provider.config()
