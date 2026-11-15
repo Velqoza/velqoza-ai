@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import JSZip from 'jszip'
 import { ArrowRight, ArrowUpRight, Sparkles, WandSparkles, Code2, Eye, Layers3, ShieldCheck, Zap, Menu, X, Monitor, Tablet, Smartphone, Download, Save, FolderOpen, Plus, MessageSquare, Send, LogOut, Trash2, Pencil, ChevronDown, Check, LoaderCircle, Globe2, Rocket, Palette, LayoutTemplate, ExternalLink, Copy, CircleHelp, Plug, PanelLeftClose, PanelLeftOpen, Search, BrainCircuit, Settings2, FileCode2, RotateCcw, FolderTree, UserRound, UserPlus, KeyRound, RefreshCw, UsersRound } from 'lucide-react'
 import { api } from './api'
+import {CardPaymentFields} from './CardPaymentFields'
 import {downloadReceiptPdf,type VerifiedReceipt} from './receipt'
 import { translate, isUiLanguage, isRtlLanguage, languageOptions, LANGUAGE_STORAGE_KEY, type UiLanguage } from './i18n'
 import type { Project, SiteCode, User, StudioThread, StudioMessage, StudioPlugin } from './types'
@@ -96,6 +97,7 @@ function CheckoutPage({user}:{user:User|null}){
   const [data,setData]=useState<Awaited<ReturnType<typeof api.checkoutSummary>>['order']|null>(null)
   const [error,setError]=useState('')
   const [busy,setBusy]=useState<'paypal'|'card'|null>(null)
+  const [showCardFields,setShowCardFields]=useState(false)
   const [loading,setLoading]=useState(true)
   useEffect(()=>{
     if(!user){setLoading(false);return}
@@ -106,16 +108,15 @@ function CheckoutPage({user}:{user:User|null}){
       .finally(()=>{if(active)setLoading(false)})
     return ()=>{active=false}
   },[requestId,user?.id])
-  const pay=async(method:'paypal'|'card')=>{
+  const pay=async()=>{
     if(!data||busy||data.status!=='pending'||!data.checkoutEnabled||data.priceChanged)return
-    setBusy(method);setError('')
+    setBusy('paypal');setError('')
     try{
-      const result=await api.startCheckout(data.id)
+      const result=await api.startCheckout(data.id,'paypal')
+      if(!result.approvalUrl)throw new Error('No PayPal approval link is available for this order.')
       const url=new URL(result.approvalUrl)
       if(url.protocol!=='https:'||url.hostname!==(result.paymentMode==='live'?'www.paypal.com':'www.sandbox.paypal.com'))
         throw new Error('Unexpected payment destination.')
-      // Card-guest checkout is offered at PayPal's discretion. Both buttons use
-      // the same PCI-compliant PayPal-hosted page; no card data is collected here.
       window.location.assign(url.href)
     }catch(err){setError(err instanceof Error?err.message:'Could not open secure checkout.');setBusy(null)}
   }
@@ -146,13 +147,18 @@ function CheckoutPage({user}:{user:User|null}){
             data.priceChanged?<p role="alert">Pricing changed since your quote. Please create a new order before paying.</p>:
             !data.checkoutEnabled?<p role="status">Secure checkout is not available for this environment right now.</p>:
             <div style={{display:'grid',gap:12}}>
-              <button type="button" disabled={busy!==null} onClick={()=>void pay('paypal')} style={{width:'100%',background:'#f1e8ff',color:'#1b1334',border:0,borderRadius:12,padding:'17px 20px',fontSize:16,fontWeight:800,cursor:busy?'wait':'pointer'}}>
+              <button type="button" disabled={busy!==null} onClick={()=>void pay()} style={{width:'100%',background:'#f1e8ff',color:'#1b1334',border:0,borderRadius:12,padding:'17px 20px',fontSize:16,fontWeight:800,cursor:busy?'wait':'pointer'}}>
                 {busy==='paypal'?'Opening PayPal…':'Pay with PayPal'}
               </button>
-              <button type="button" disabled={busy!==null} onClick={()=>void pay('card')} style={{width:'100%',background:'#242039',color:'#f6edff',border:'1px solid #9273be',borderRadius:12,padding:'17px 20px',fontSize:16,fontWeight:800,cursor:busy?'wait':'pointer'}}>
-                {busy==='card'?'Opening secure card checkout…':'Pay with Credit / Debit Card'}
+              <button type="button" disabled={busy!==null} onClick={()=>{setShowCardFields(v=>!v);setError('')}} style={{width:'100%',background:'#242039',color:'#f6edff',border:'1px solid #9273be',borderRadius:12,padding:'17px 20px',fontSize:16,fontWeight:800,cursor:'pointer'}}>
+                {showCardFields?'Hide Credit / Debit Card Form':'Pay with Credit / Debit Card'}
               </button>
-              <p style={{fontSize:12,color:'#a9a0c1',lineHeight:1.6,margin:0}}>Credit/debit card payments open PayPal's secure checkout. Paying as a guest without a PayPal account is available only when PayPal offers that option. VELQOZA never collects card details.</p>
+              {showCardFields&&(
+                data.paymentMode==='sandbox'
+                  ?<CardPaymentFields requestId={data.id} amountCents={data.amountCents} onSuccess={orderId=>window.location.replace('/purchase-success?order='+encodeURIComponent(orderId))}/>
+                  :<p role="status" style={{fontSize:13,color:'#ffceb0'}}>Direct credit/debit card payments are not active in Live checkout yet. This form is being tested in Sandbox.</p>
+              )}
+              <p style={{fontSize:12,color:'#a9a0c1',lineHeight:1.6,margin:0}}>Card payments are processed in PayPal-hosted secure fields when the merchant account is eligible. VELQOZA never collects your card number or CVV.</p>
               {data.paymentMode==='sandbox'&&<p style={{fontSize:12,color:'#d5b9ff',margin:0}}>Sandbox test mode — no real funds.</p>}
             </div>}
          </div>
