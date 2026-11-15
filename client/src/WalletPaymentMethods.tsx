@@ -51,15 +51,13 @@ export function WalletPaymentMethods({requestId,amountCents,onSuccess}:{requestI
         if(!active)return
         const win=window as WalletWindow
         const sdk=await win.paypal!.createInstance({clientToken:settings.clientToken,components:['googlepay-payments','applepay-payments'],pageType:'checkout'})
-        const googleSdk=await win.paypal!.createInstance({clientId:settings.clientId,components:['googlepay-payments'],pageType:'checkout'})
-        const eligible=await googleSdk.findEligibleMethods({currencyCode:'USD',amount:price})
-        const appleEligible=await sdk.findEligibleMethods({currencyCode:'USD',amount:price})
+        const eligible=await sdk.findEligibleMethods({currencyCode:'USD',amount:price})
         if(!active)return
         if(eligible.isEligible('googlepay')){
           try{
             await loadSdk('https://pay.google.com/gp/p/js/pay.js')
             if(!active)return
-            const session=googleSdk.createGooglePayOneTimePaymentSession()
+            const session=sdk.createGooglePayOneTimePaymentSession()
             const config=session.formatConfigForPaymentRequest(eligible.getDetails('googlepay').config)
             const client=new win.google!.payments.api.PaymentsClient({
               environment:'TEST',
@@ -93,7 +91,7 @@ export function WalletPaymentMethods({requestId,amountCents,onSuccess}:{requestI
             }
           }catch{ /* Not eligible on this device; don't show a non-working payment button. */ }
         }
-        if(appleEligible.isEligible('applepay')&&win.ApplePaySession?.canMakePayments()){
+        if(eligible.isEligible('applepay')&&win.ApplePaySession?.canMakePayments()){
           try{
             const provider=sdk.createApplePayOneTimePaymentSession()
             const config=await provider.config()
