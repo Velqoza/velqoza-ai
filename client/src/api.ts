@@ -58,6 +58,7 @@ export const api = {
   usage: () => request<{windowHours:number;serverTime:string;usage:Record<'studio'|'edit'|'generate',{used:number;remaining:number;limit:number;nextAvailableAt:string|null;purchasedRemaining:number}>}>('/usage'),
   packagesCatalog: () => request<{packages:{id:string;label:string;usdCents:number;credits:number;messages:number;edits:number;generations:number}[];customLimits:Record<'credits'|'messages'|'edits'|'generations',{min:number;max:number}>;unitPricesCents:Record<'credits'|'messages'|'edits'|'generations',number>;checkoutEnabled:boolean;paymentMode:'live'|'sandbox'|null;quotasActive:boolean;currency:string}>('/packages'),
   packageRequests: () => request<{requests:{id:string;selection:unknown;status:string;createdAt:string}[]}>('/packages/requests'),
+  cancelPackageRequest: (id:string)=>request<{ok:true}>(`/packages/requests/${encodeURIComponent(id)}`,{method:'DELETE'}),
   startCheckout: (requestId:string)=>request<{orderId:string;approvalUrl:string;sandbox:boolean;paymentMode:'live'|'sandbox'}>('/packages/checkout',{method:'POST',body:JSON.stringify({requestId})}),
   recoverCheckout:(requestId:string)=>request<{ok:true;alreadyApplied:boolean;balance:number}>('/packages/checkout/recover',{method:'POST',body:JSON.stringify({requestId})}),
   captureCheckout: (orderId:string)=>request<{ok:true;alreadyApplied:boolean;balance:number}>('/packages/checkout/capture',{method:'POST',body:JSON.stringify({orderId})}),
