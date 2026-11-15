@@ -232,7 +232,7 @@ export function validatedGrants(raw:string,paidCents:number):PaymentGrants {
   if(grants.credits+grants.messages+grants.edits+grants.generations<=0)throw new Error('Payment snapshot has no entitlements.')
   return grants
 }
-export async function createCheckout(paymentId:string,cents:number,description:string,returnOrigin:string,method:'paypal'|'card'='paypal'){
+export async function createCheckout(paymentId:string,cents:number,description:string,returnOrigin:string,method:'paypal'|'card'|'googlepay'|'applepay'='paypal'){
   if(cents<50||cents>1_000_000)throw new Error('Checkout supports orders from $0.50 to $10,000. Please reduce the selected quantities.')
   const result=await paypalRequest('POST','/v2/checkout/orders',{
     intent:'CAPTURE',
