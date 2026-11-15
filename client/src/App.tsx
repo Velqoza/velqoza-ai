@@ -99,6 +99,8 @@ function CheckoutPage({user}:{user:User|null}){
   const [error,setError]=useState('')
   const [busy,setBusy]=useState<'paypal'|'card'|null>(null)
   const [showCardFields,setShowCardFields]=useState(false)
+  const [oldSandboxOrder,setOldSandboxOrder]=useState(false)
+  const [creatingReplacement,setCreatingReplacement]=useState(false)
   const [loading,setLoading]=useState(true)
   useEffect(()=>{
     if(!user){setLoading(false);return}
@@ -120,7 +122,17 @@ function CheckoutPage({user}:{user:User|null}){
       if(url.protocol!=='https:'||url.hostname!==(result.paymentMode==='live'?'www.paypal.com':'www.sandbox.paypal.com'))
         throw new Error('Unexpected payment destination.')
       window.location.assign(url.href)
-    }catch(err){setError(err instanceof Error?err.message:'Could not open secure checkout.');setBusy(null)}
+    }catch(err){const message=err instanceof Error?err.message:'Could not open secure checkout.';setError(message);if(message.includes('previous PayPal test app'))setOldSandboxOrder(true);setBusy(null)}
+  }
+  const createNewSandboxOrder=async()=>{
+    if(!data||creatingReplacement||data.paymentMode!=='sandbox')return
+    if(!window.confirm('Create a fresh Sandbox test order for the same package? The old order remains on record and will NOT be charged or deleted.'))return
+    setCreatingReplacement(true);setError('')
+    try{
+      const result=await api.requestPackage(data.selection)
+      window.location.assign('/checkout?request='+encodeURIComponent(result.request.id))
+    }catch(err){setError(err instanceof Error?err.message:'Could not create a fresh test order.')}
+    finally{setCreatingReplacement(false)}
   }
   const row=(label:string,value:string)=>(
     <div style={{display:'flex',gap:14,justifyContent:'space-between',alignItems:'baseline',padding:'9px 0',borderBottom:'1px solid #352b48'}}>
@@ -157,10 +169,15 @@ function CheckoutPage({user}:{user:User|null}){
               </button>
               {showCardFields&&(
                 data.paymentMode==='sandbox'
-                  ?<CardPaymentFields requestId={data.id} amountCents={data.amountCents} onSuccess={orderId=>window.location.replace('/purchase-success?order='+encodeURIComponent(orderId))}/>
+                  ?<CardPaymentFields requestId={data.id} amountCents={data.amountCents} onOldOrder={()=>setOldSandboxOrder(true)} onSuccess={orderId=>window.location.replace('/purchase-success?order='+encodeURIComponent(orderId))}/>
                   :<p role="status" style={{fontSize:13,color:'#ffceb0'}}>Direct credit/debit card payments are not active in Live checkout yet. This form is being tested in Sandbox.</p>
               )}
               {data.paymentMode==='sandbox'&&<WalletPaymentMethods requestId={data.id} amountCents={data.amountCents} onSuccess={orderId=>window.location.replace('/purchase-success?order='+encodeURIComponent(orderId))}/>}
+              {oldSandboxOrder&&data.paymentMode==='sandbox'&&<div role="alert" style={{border:'1px solid #f0a9b3',borderRadius:10,padding:14,background:'#2d1a28',display:'grid',gap:10}}>
+                <strong>Previous Sandbox order cannot be reused</strong>
+                <span style={{fontSize:13,lineHeight:1.5}}>You switched PayPal test merchant accounts. The old checkout remains saved for review. Create a new test order for the same package. No payment will be made by creating it.</span>
+                <button type="button" disabled={creatingReplacement} onClick={()=>void createNewSandboxOrder()} style={{padding:'12px 16px',border:0,borderRadius:9,fontWeight:800,background:'#c9a9ff',color:'#211230',cursor:'pointer'}}>{creatingReplacement?'Creating new test order…':'Create Fresh Sandbox Order'}</button>
+              </div>}
               <p style={{fontSize:12,color:'#a9a0c1',lineHeight:1.6,margin:0}}>Card payments are processed in PayPal-hosted secure fields when the merchant account is eligible. VELQOZA never collects your card number or CVV.</p>
               {data.paymentMode==='sandbox'&&<p style={{fontSize:12,color:'#d5b9ff',margin:0}}>Sandbox test mode — no real funds.</p>}
             </div>}
