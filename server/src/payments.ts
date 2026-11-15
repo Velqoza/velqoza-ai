@@ -246,7 +246,7 @@ export async function resumeCheckout(orderId:string,paymentId:string,expectedCen
   if(unit.length!==1||unit[0].custom_id!==paymentId||unit[0].reference_id!==paymentId)
     throw new Error('PayPal order identity does not match the original payment.')
   const amount=unit[0].amount
-  if(amount?.currency_code!=='USD'||!/^\\d+\\.\\d{2}$/.test(amount.value||'')||Math.round(Number(amount.value)*100)!==expectedCents)
+  if(amount?.currency_code!=='USD'||!/^\d+\.\d{2}$/.test(amount.value||'')||Math.round(Number(amount.value)*100)!==expectedCents)
     throw new Error('PayPal order amount is not the agreed amount.')
   return {orderId,approvalUrl:validatedApprovalUrl(order)}
 }
