@@ -237,7 +237,7 @@ app.get('/api/packages/requests/:id/checkout-summary',requireAuth,(req:AuthReque
       : {type:'custom' as const,credits:stored.credits,messages:stored.messages,edits:stored.edits,generations:stored.generations}
     const grants=priceSelection(selection)
     const quotedCents=stored.pricing?.totalCents
-    if(!Number.isSafeInteger(quotedCents)||quotedCents<0||stored.pricing?.currency!=='USD')
+    if(typeof quotedCents!=='number'||!Number.isSafeInteger(quotedCents)||quotedCents<0||stored.pricing?.currency!=='USD')
       return res.status(409).json({error:'This quote is invalid. Create a new request.'})
     res.setHeader('Cache-Control','no-store')
     return res.json({order:{
