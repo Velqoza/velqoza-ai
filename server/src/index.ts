@@ -223,6 +223,33 @@ app.get('/api/packages/requests',requireAuth,(req:AuthRequest,res)=>{
   const rows=db.prepare('SELECT id,selection_json,status,created_at FROM package_requests WHERE user_id=? ORDER BY created_at DESC LIMIT 25').all(req.userId) as {id:string;selection_json:string;status:string;created_at:string}[]
   res.json({requests:rows.map(r=>({id:r.id,selection:JSON.parse(r.selection_json),status:r.status,createdAt:r.created_at}))})
 })
+// Owner-only order summary for the dedicated pre-payment checkout screen.
+app.get('/api/packages/requests/:id/checkout-summary',requireAuth,(req:AuthRequest,res)=>{
+  const id=z.string().uuid().safeParse(req.params.id)
+  if(!id.success)return res.status(400).json({error:'Invalid order reference.'})
+  const request=db.prepare('SELECT id,selection_json,status,created_at FROM package_requests WHERE id=? AND user_id=?')
+    .get(id.data,req.userId) as {id:string;selection_json:string;status:string;created_at:string}|undefined
+  if(!request)return res.status(404).json({error:'Order not found for this account.'})
+  try{
+    const stored=JSON.parse(request.selection_json) as PaidSelection & {pricing?:{totalCents?:number;currency?:string}}
+    const selection=stored.type==='package'
+      ? {type:'package' as const,packageId:stored.packageId}
+      : {type:'custom' as const,credits:stored.credits,messages:stored.messages,edits:stored.edits,generations:stored.generations}
+    const grants=priceSelection(selection)
+    const quotedCents=stored.pricing?.totalCents
+    if(!Number.isSafeInteger(quotedCents)||quotedCents<0||stored.pricing?.currency!=='USD')
+      return res.status(409).json({error:'This quote is invalid. Create a new request.'})
+    res.setHeader('Cache-Control','no-store')
+    return res.json({order:{
+      id:request.id,status:request.status,createdAt:request.created_at,
+      packageName:selection.type==='package'?(PACKAGES.find(p=>p.id===selection.packageId)?.label||'Package'):'Custom package',
+      currency:'USD',amountCents:quotedCents,priceChanged:grants.amountCents!==quotedCents,
+      credits:grants.credits,messages:grants.messages,edits:grants.edits,generations:grants.generations,
+      checkoutEnabled:paypalReady(),paymentMode:paypalMode()
+    }})
+  }catch{return res.status(409).json({error:'This quote cannot be displayed. Create a new request.'})}
+})
+
 app.post('/api/packages/requests',requireAuth,rateLimit({windowMs:60*60_000,limit:5,standardHeaders:'draft-7',legacyHeaders:false}),(req:AuthRequest,res)=>{
   const parsed=packageRequestBody.safeParse(req.body)
   if(!parsed.success)return res.status(400).json({error:'Invalid package quantities. Credits must be 10–1,000,000; other selected items 1–1,000,000.'})
