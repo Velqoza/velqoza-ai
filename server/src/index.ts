@@ -317,6 +317,15 @@ app.post('/api/packages/checkout/capture',requireAuth,rateLimit({windowMs:60*60_
   }
 })
 
+// Read-only, owner-scoped receipt listing for purchases completed before this UI update.
+app.get('/api/packages/receipts',requireAuth,(req:AuthRequest,res)=>{
+  const rows=db.prepare(`SELECT request_id AS requestId,paypal_order_id AS orderId
+    FROM package_payments WHERE user_id=? AND status IN ('completed','review_required')
+    AND paypal_order_id IS NOT NULL AND paypal_capture_id IS NOT NULL AND fulfilled_at IS NOT NULL
+    ORDER BY fulfilled_at DESC LIMIT 50`).all(req.userId)
+  res.setHeader('Cache-Control','no-store')
+  res.json({receipts:rows})
+})
 // A receipt is only available for a completed, server-verified purchase owned by
 // the signed-in customer. No user-supplied price or customer details are trusted.
 app.get('/api/packages/receipt/:orderId',requireAuth,(req:AuthRequest,res)=>{
