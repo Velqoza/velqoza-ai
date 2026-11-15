@@ -16,6 +16,68 @@ export function paypalMode(): 'sandbox'|'live'|null {
      process.env.LIVE_PAYMENTS_APPROVED==='true'&&Boolean(process.env.PAYPAL_WEBHOOK_ID?.trim()))return 'live'
   return null
 }
+// Read-only Live diagnostics: no orders, captures, refunds, or wallet changes.
+// This deliberately bypasses paypalReady(), because checkout must remain disabled
+// while the operator verifies credentials and the registered webhook.
+export type LiveDiagnosticCheck={label:string;ok:boolean;detail:string}
+export type LiveDiagnosticResult={checks:LiveDiagnosticCheck[];allPassed:boolean;checkoutStillDisabled:boolean}
+export function inspectLiveWebhook(data:{id?:string;url?:string;event_types?:Array<{name?:string}>},webhookId:string):LiveDiagnosticCheck[]{
+  const expectedUrl='https://ai.velqoza.com/api/paypal/webhook'
+  const events=new Set(data.event_types?.map(x=>x.name)||[])
+  const required=['PAYMENT.CAPTURE.COMPLETED','PAYMENT.CAPTURE.REFUNDED','PAYMENT.CAPTURE.REVERSED','CUSTOMER.DISPUTE.CREATED']
+  return [
+    {label:'Webhook belongs to this Live application',ok:data.id===webhookId,detail:data.id===webhookId?'PayPal returned the configured webhook.':'Webhook ID mismatch.'},
+    {label:'Webhook delivery URL',ok:data.url===expectedUrl,detail:data.url===expectedUrl?'Correct VELQOZA AI HTTPS endpoint.':'Webhook URL must exactly match https://ai.velqoza.com/api/paypal/webhook.'},
+    {label:'Required payment event subscriptions',ok:required.every(x=>events.has(x)),detail:required.every(x=>events.has(x))?'Capture, refund, reversal and dispute events included.':'Missing required event(s): '+required.filter(x=>!events.has(x)).join(', ')}
+  ]
+}
+export async function diagnoseLivePayPal():Promise<LiveDiagnosticResult>{
+  const checks:LiveDiagnosticCheck[]=[]
+  const add=(label:string,ok:boolean,detail:string)=>checks.push({label,ok,detail})
+  const client=process.env.PAYPAL_CLIENT_ID?.trim()
+  const secret=process.env.PAYPAL_CLIENT_SECRET?.trim()
+  const webhookId=process.env.PAYPAL_WEBHOOK_ID?.trim()
+  if(process.env.NODE_ENV!=='production'||process.env.RENDER_SERVICE_ID==='srv-dbs3comi0phs73c0s1dg'||process.env.PAYPAL_ENV!=='live'){
+    add('Live production deployment',false,'Diagnostics are only available for the selected Live production service.')
+    return {checks,allPassed:false,checkoutStillDisabled:!paypalReady()}
+  }
+  if(!client||!secret||!webhookId||!/^[A-Za-z0-9]{6,50}$/.test(webhookId)){
+    add('Live API configuration',false,'Live client credentials or webhook ID are missing or invalid.')
+    return {checks,allPassed:false,checkoutStillDisabled:!paypalReady()}
+  }
+  try{
+    const auth=await fetch('https://api-m.paypal.com/v1/oauth2/token',{
+      method:'POST',
+      headers:{Authorization:'Basic '+Buffer.from(client+':'+secret).toString('base64'),'Content-Type':'application/x-www-form-urlencoded'},
+      body:'grant_type=client_credentials',signal:AbortSignal.timeout(10000)
+    })
+    if(!auth.ok){
+      add('Live PayPal OAuth authentication',false,'PayPal rejected the Live credentials (HTTP '+auth.status+').')
+      return {checks,allPassed:false,checkoutStillDisabled:!paypalReady()}
+    }
+    const token=await auth.json() as {access_token?:string}
+    if(!token.access_token){
+      add('Live PayPal OAuth authentication',false,'No access token returned by PayPal.')
+      return {checks,allPassed:false,checkoutStillDisabled:!paypalReady()}
+    }
+    add('Live PayPal OAuth authentication',true,'PayPal accepted the Live client credentials.')
+    const res=await fetch('https://api-m.paypal.com/v1/notifications/webhooks/'+encodeURIComponent(webhookId),{
+      headers:{Authorization:'Bearer '+token.access_token,Accept:'application/json'},
+      signal:AbortSignal.timeout(10000)
+    })
+    if(!res.ok){
+      add('Registered Live webhook lookup',false,'PayPal could not return the webhook (HTTP '+res.status+'). Check the webhook belongs to this Live app.')
+      return {checks,allPassed:false,checkoutStillDisabled:!paypalReady()}
+    }
+    const webhook=await res.json() as {id?:string;url?:string;event_types?:Array<{name?:string}>}
+    add('Registered Live webhook lookup',true,'PayPal returned a webhook for this application.')
+    checks.push(...inspectLiveWebhook(webhook,webhookId))
+  }catch{
+    add('PayPal network connectivity',false,'Live API did not respond in time. No payment was attempted.')
+  }
+  return {checks,allPassed:checks.every(x=>x.ok),checkoutStillDisabled:!paypalReady()}
+}
+
 export function paypalReady(){return paypalMode()!==null}
 const paypalBase=()=>paypalMode()==='live'?'https://api-m.paypal.com':'https://api-m.sandbox.paypal.com'
 type PayPalOrder={id?:string;status?:string;links?:{href:string;rel:string}[];purchase_units?:{reference_id?:string;custom_id?:string;amount?:{currency_code?:string;value?:string};payments?:{captures?:{id?:string;status?:string;amount?:{currency_code?:string;value?:string}}[]}}[]}
