@@ -62,7 +62,7 @@ export const api = {
   packageRequests: () => request<{requests:{id:string;selection:unknown;status:string;createdAt:string}[]}>('/packages/requests'),
   cancelPackageRequest: (id:string)=>request<{ok:true}>(`/packages/requests/${encodeURIComponent(id)}`,{method:'DELETE'}),
   cardFieldsToken:()=>request<{clientToken:string;sdkUrl:string}>('/packages/card-fields-token'),
-  startCheckout: (requestId:string,method:'paypal'|'card'='paypal')=>request<{orderId:string;approvalUrl:string|null;sandbox:boolean;paymentMode:'live'|'sandbox'}>('/packages/checkout',{method:'POST',body:JSON.stringify({requestId,method})}),
+  startCheckout: (requestId:string,method:'paypal'|'card'|'googlepay'|'applepay'='paypal')=>request<{orderId:string;approvalUrl:string|null;sandbox:boolean;paymentMode:'live'|'sandbox'}>('/packages/checkout',{method:'POST',body:JSON.stringify({requestId,method})}),
   recoverCheckout:(requestId:string)=>request<{ok:true;alreadyApplied:boolean;balance:number}>('/packages/checkout/recover',{method:'POST',body:JSON.stringify({requestId})}),
   paymentReceipts:()=>request<{receipts:{requestId:string;orderId:string}[]}>('/packages/receipts'),
   paymentReceipt:(orderId:string)=>request<{receipt:import('./receipt').VerifiedReceipt}>(`/packages/receipt/${encodeURIComponent(orderId)}`),
