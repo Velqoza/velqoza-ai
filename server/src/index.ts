@@ -19,6 +19,7 @@ import { studioPluginCatalog, runStudioPlugins } from './studioPlugins.js'
 import type { AuthRequest, SiteCode } from './types.js'
 import { validateExtraFiles } from './projectFiles.js'
 import { buildPublishedDocument, publishedAsset } from './publishedAssets.js'
+import { PREVIEW_RUNTIME_HTML, PREVIEW_RUNTIME_CSP } from './previewRuntime.js'
 import { COSTS, PACKAGES, CUSTOM_LIMITS, CUSTOM_UNIT_PRICES_CENTS, calculateCustomPrice, getCredits, getCreditHistory, chargeAI, refundAI, purchasedQuota, redeemVoucher } from './credits.js'
 import { paypalReady, paypalMode, cardFieldsSandboxEnabled, paypalBrowserClientToken, createCheckout, resumeCheckout, resumeCardCheckout, captureCheckout, retrieveCompletedCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, validatedGrants, verifyPayPalWebhook, recordVerifiedPaymentEvent, completedWebhookReference, diagnoseLivePayPal, type PayPalWebhookEvent } from './payments.js'
 
@@ -49,6 +50,18 @@ app.use((req,res,next) => {
   next()
 })
 app.use(express.json({ limit: '8mb' }))
+/**
+ * The account UI intentionally disallows inline JS through Helmet's CSP.
+ * Generated website previews need their own sandboxed response; srcDoc would
+ * inherit the account CSP and silently block scripts (empty game UI).
+ */
+app.get('/preview-runtime',(req,res)=>{
+  res.setHeader('Content-Security-Policy',PREVIEW_RUNTIME_CSP)
+  res.setHeader('Cache-Control','no-store')
+  res.setHeader('X-Content-Type-Options','nosniff')
+  res.type('html').send(PREVIEW_RUNTIME_HTML)
+})
+
 // Subdomain routing is staging-only. DNS and TLS must be provisioned separately;
 // no requests for live *.velqoza.com are intercepted without operator approval.
 app.use((req,res,next)=>{
