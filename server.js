@@ -3,6 +3,7 @@ import express from "express";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
+import { modelChoices, selectModel, isOpenAIModel, requestOpenAI, makeOpenAIQuota } from "./openai-models.js";
 
 dotenv.config();
 
@@ -57,6 +58,9 @@ const getCurrentModel = () =>
   provider() === "ollama"
     ? getOllamaModel()
     : getGeminiModel();
+
+const defaultModelId = () => provider() === "ollama" ? "ollama" : "gemini";
+const useOpenAIQuota = makeOpenAIQuota();
 
 function extractJson(content) {
   const cleaned = String(content || "")
@@ -235,11 +239,13 @@ async function requestOllama(messages, options = {}) {
   return content;
 }
 
-async function requestAI(messages, options = {}) {
-  if (provider() === "ollama") {
+async function requestAI(messages, options = {}, selectedModel = defaultModelId()) {
+  if (isOpenAIModel(selectedModel)) {
+    return requestOpenAI(messages, selectedModel);
+  }
+  if (selectedModel === "ollama") {
     return requestOllama(messages, options);
   }
-
   return requestGemini(messages, options);
 }
 
@@ -250,8 +256,17 @@ app.get("/api/health", (_req, res) => {
     provider: provider(),
     configured:
       provider() === "ollama" ||
-      Boolean(process.env.AI_API_KEY),
+      Boolean(process.env.AI_API_KEY) ||
+      modelChoices(provider()).some(m => isOpenAIModel(m.id) && m.available),
     model: getCurrentModel()
+  });
+});
+
+// AVAILABLE MODELS: public metadata only, never includes API keys.
+app.get("/api/models", (_req, res) => {
+  res.json({
+    defaultModel: defaultModelId(),
+    models: modelChoices(provider())
   });
 });
 
@@ -383,28 +398,22 @@ app.get("/api/test-json", async (_req, res) => {
 app.post("/api/chat", async (req, res) => {
   const startedAt = Date.now();
 
-  console.log(
-    "[AI] New request:",
-    provider(),
-    getCurrentModel()
-  );
-
-  if (
-    provider() !== "ollama" &&
-    !process.env.AI_API_KEY
-  ) {
-    return res.status(503).json({
-      error: "AI API key is not configured."
-    });
-  }
-
   if (!["ollama", "gemini"].includes(provider())) {
-    return res.status(503).json({
-      error: "Unsupported AI_PROVIDER."
-    });
+    return res.status(503).json({ error: "Unsupported AI_PROVIDER." });
   }
 
-  const { messages = [], files = {} } = req.body ?? {};
+  const { messages = [], files = {}, model: requestedModel } = req.body ?? {};
+  const selectedModel = selectModel(requestedModel, provider());
+  if (selectedModel === null) {
+    return res.status(400).json({ error: "Please select a supported model." });
+  }
+  if (selectedModel === "unavailable") {
+    return res.status(503).json({ error: "This OpenAI model is not enabled by the site owner." });
+  }
+  if (selectedModel === "gemini" && !process.env.AI_API_KEY) {
+    return res.status(503).json({ error: "Gemini API key is not configured." });
+  }
+  console.log("[AI] New request:", selectedModel);
 
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({
@@ -435,8 +444,16 @@ app.post("/api/chat", async (req, res) => {
     ...safeMessages
   ];
 
+  // These limits are intentionally conservative, but not a substitute for
+  // persistent per-account quotas and billing alerts on a public site.
+  if (isOpenAIModel(selectedModel) && !useOpenAIQuota(req.ip)) {
+    return res.status(429).json({
+      error: "OpenAI daily usage limit reached. Try again tomorrow or choose the default model."
+    });
+  }
+
   try {
-    const content = await requestAI(messagesForAI);
+    const content = await requestAI(messagesForAI, {}, selectedModel);
 
     let result;
 
@@ -467,6 +484,7 @@ app.post("/api/chat", async (req, res) => {
       assistant: String(
         result.assistant || "Your website is ready."
       ),
+      model: selectedModel,
       files: {
         "index.html": result.files["index.html"],
         "style.css": result.files["style.css"],

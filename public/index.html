@@ -35,6 +35,13 @@
 
         <div class="prompt-area">
           <div class="prompt-tools"><span>✦ &nbsp; CREATE WITH AI</span><span id="connectionLabel">Checking connection…</span></div>
+          <div class="model-picker">
+            <label for="modelSelect">AI MODEL</label>
+            <select id="modelSelect" aria-describedby="modelHelp" disabled>
+              <option value="">Loading models…</option>
+            </select>
+            <p id="modelHelp" role="status">Checking available models…</p>
+          </div>
           <textarea id="promptInput" rows="3" placeholder="Build a modern website for a luxury car dealership..." aria-label="Describe the website you want"></textarea>
           <div class="prompt-bottom">
             <span class="hint">Enter to send · Shift + Enter for new line</span>
