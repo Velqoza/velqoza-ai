@@ -7,6 +7,7 @@ import {WalletPaymentMethods} from './WalletPaymentMethods'
 import {downloadReceiptPdf,type VerifiedReceipt} from './receipt'
 import { translate, isUiLanguage, isRtlLanguage, languageOptions, LANGUAGE_STORAGE_KEY, type UiLanguage } from './i18n'
 import type { Project, SiteCode, User, StudioThread, StudioMessage, StudioPlugin } from './types'
+import { buildPreviewDocument } from './previewDocument'
 
 const examples = [
   'A luxury skincare brand with an editorial feel and a warm neutral palette',
@@ -20,28 +21,7 @@ function getPages(code: SiteCode): Record<string,string> {
   return code.pages && Object.keys(code.pages).length ? code.pages : { 'index.html': code.html }
 }
 function buildDocument(code: SiteCode, filename = 'index.html', exported = false) {
-  const rawHtml = getPages(code)[filename] || getPages(code)['index.html'] || code.html
-  // The AI may return either a full HTML document or an HTML body fragment.
-  // Avoid producing invalid nested <html> documents in either preview or ZIP.
-  const hasDocument = /<!doctype\s+html|<html[\s>]/i.test(rawHtml)
-  const hebrew = /[\u0590-\u05FF]/.test(rawHtml)
-  const arabic = /[\u0600-\u06FF]/.test(rawHtml)
-  const direction = hebrew ? 'he' : arabic ? 'ar' : 'en'
-  const rtl = hebrew || arabic
-  const externalHead = exported ? '<link rel="stylesheet" href="styles.css">' : `<style>${code.css.replace(/<\/style/gi, '<\\/style')}</style>`
-  const externalScript = exported ? '<script src="script.js"></script>' : `<script>${code.js.replace(/<\/script/gi, '<\\/script')}</script>`
-  const navigator = exported ? '' : `<script>document.addEventListener('click',function(e){var a=e.target.closest('a[href]');if(!a)return;var h=a.getAttribute('href');if(!h)return;var m=h.match(/^\.?\/?([a-z0-9_-]+\.html)(#[^?]*)?$/i);if(m){e.preventDefault();parent.postMessage({type:'velqoza-navigate',filename:m[1].toLowerCase(),hash:m[2]||''},'*')}});</script>`
-  if (hasDocument) {
-    let documentHtml = rawHtml
-    if (!/<html[^>]*\blang=/i.test(documentHtml)) documentHtml = documentHtml.replace(/<html([\s>])/i, `<html lang="${direction}"$1`)
-    if (rtl && !/<html[^>]*\bdir=/i.test(documentHtml)) documentHtml = documentHtml.replace(/<html([\s>])/i, '<html dir="rtl"$1')
-    // Insert shared assets while respecting an existing head/body.
-    if (/<\/head>/i.test(documentHtml)) documentHtml = documentHtml.replace(/<\/head>/i, externalHead + '</head>')
-    else documentHtml = documentHtml.replace(/<body([^>]*)>/i, `<head>${externalHead}</head><body$1>`)
-    if (/<\/body>/i.test(documentHtml)) return documentHtml.replace(/<\/body>/i, externalScript + navigator + '</body>')
-    return documentHtml + externalScript + navigator
-  }
-  return `<!doctype html><html lang="${direction}"${rtl ? ' dir="rtl"' : ''}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="${escapeAttr(code.description)}"><title>${escapeHtml(code.title)} — ${escapeHtml(filename)}</title>${externalHead}</head><body>${rawHtml}${externalScript}${navigator}</body></html>`
+  return buildPreviewDocument(code, filename, exported)
 }
 function escapeHtml(value: string) { return value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c)) }
 function escapeAttr(value: string) { return escapeHtml(value) }
