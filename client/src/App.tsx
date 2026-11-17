@@ -169,6 +169,23 @@ function CheckoutPage({user}:{user:User|null}){
   </div>
 }
 
+
+type AiModelChoice = 'default'|'gpt-6.1-sol'|'gpt-6-astra'
+type AiModelOption = {id:AiModelChoice;label:string;description:string;available:boolean}
+
+function ModelPicker({value, options, busy, onChange}:{
+  value:AiModelChoice;options:AiModelOption[];busy:boolean;onChange:(next:AiModelChoice)=>void
+}) {
+  const choice=options.find(m=>m.id===value)
+  return <label style={{display:'inline-flex',alignItems:'center',gap:7,minWidth:0,fontSize:11,color:'#cbb9ff',whiteSpace:'nowrap'}} title={choice?.description||'Choose AI model'}>
+    <span>AI model</span>
+    <select aria-label="AI model" disabled={busy} value={value} onChange={e=>onChange(e.target.value as AiModelChoice)}
+      style={{maxWidth:185,minWidth:0,background:'#241d34',color:'#f4f0ff',border:'1px solid #65517b',borderRadius:8,padding:'6px 8px',fontSize:11,cursor:busy?'wait':'pointer'}}>
+      {options.map(m=><option key={m.id} value={m.id} disabled={!m.available}>{m.label}{m.available?'':' · Unavailable'}</option>)}
+    </select>
+  </label>
+}
+
 export default function App() {
   const [uiLanguage,setUiLanguage]=useState<UiLanguage>(()=>{
     try {const saved=window.localStorage.getItem(LANGUAGE_STORAGE_KEY);return isUiLanguage(saved)?saved:'en'} catch{return 'en'}
@@ -179,6 +196,30 @@ export default function App() {
     document.documentElement.lang=uiLanguage
     document.documentElement.dir=isRtlLanguage(uiLanguage)?'rtl':'ltr'
   },[uiLanguage])
+
+  const [modelOptions,setModelOptions] = useState<AiModelOption[]>([{id:'default',label:'Standard AI',description:'Default VELQOZA builder model',available:true}])
+  const [selectedModel,setSelectedModel] = useState<AiModelChoice>(() => {
+    try {
+      const choice=localStorage.getItem('velqoza-ai-model-choice')
+      return choice==='gpt-6.1-sol'||choice==='gpt-6-astra'?choice:'default'
+    } catch { return 'default' }
+  })
+  useEffect(()=>{
+    let active=true
+    void api.aiModels().then(data=>{
+      if(!active)return
+      const valid=data.models.filter((m):m is AiModelOption=>['default','gpt-6.1-sol','gpt-6-astra'].includes(m.id))
+      if(!valid.length)return
+      setModelOptions(valid)
+      setSelectedModel(previous=>valid.some(m=>m.id===previous&&m.available)?previous:'default')
+    }).catch(()=>{if(active)setSelectedModel('default')})
+    return ()=>{active=false}
+  },[])
+  const chooseAiModel=(choice:AiModelChoice)=>{
+    if(!modelOptions.some(m=>m.id===choice&&m.available))return
+    setSelectedModel(choice)
+    try{localStorage.setItem('velqoza-ai-model-choice',choice)}catch{}
+  }
   const [user, setUser] = useState<User | null>(null)
   const [accountOpen,setAccountOpen]=useState(false)
   const [savedAccounts,setSavedAccounts]=useState(api.savedAccounts())
@@ -705,7 +746,7 @@ export default function App() {
       if (!id) {setStudioInput(current => current || message);return}
       const stamp=new Date().toISOString()
       setStudioMessages(m=>[...m,{id:`pending-${stamp}`,role:'user',content:message,createdAt:stamp}])
-      const response=await api.sendStudioMessage(id,{message,pluginIds:enabledPlugins,projectCode:studioAttachProject && code ? code : undefined})
+      const response=await api.sendStudioMessage(id,{message,pluginIds:enabledPlugins,projectCode:studioAttachProject && code ? code : undefined,model:selectedModel})
       setStudioMessages(m=>[...m,{id:`answer-${stamp}`,role:'assistant',content:response.reply,createdAt:new Date().toISOString()}])
       const list=await api.studioThreads();setStudioThreads(list.threads)
     } catch(e) {
@@ -727,7 +768,7 @@ export default function App() {
     if (!prompt.trim()) { flash('Describe the website you want to create first.'); return }
     setBusy(true); setTab('editor'); setMessages([])
     try {
-      const result = await api.generate({ prompt: prompt.trim(), category, style, colors, language:siteLanguage })
+      const result = await api.generate({ prompt: prompt.trim(), category, style, colors, language:siteLanguage, model:selectedModel })
       workSessionRef.current += 1; activeIdRef.current = undefined; setSaveStatus('pending')
       setCode(result.code); setLastEditFiles([]); setUndoStack([]); setPreviewPage('index.html'); setInspectorFile('index.html'); setActive(null); setProjectName(result.code.title || 'New website')
       flash('Your website has been generated.')
@@ -740,7 +781,7 @@ export default function App() {
     setMessages(m => [...m, {role:'user', text:instruction}]); setChat(''); setBusy(true)
     requestAnimationFrame(() => editorInputRef.current?.focus())
     try {
-      const result = await api.edit({ instruction, code })
+      const result = await api.edit({ instruction, code, model:selectedModel })
       const previousPages=getPages(code),updatedPages=getPages(result.code)
       const changedNames=[
         ...new Set([...Object.keys(previousPages),...Object.keys(updatedPages)])
@@ -1218,7 +1259,7 @@ export default function App() {
         <div className="studio-side-bottom"><button onClick={()=>{if(changed && !window.confirm('Unsaved changes. Leave editor?'))return;setTab('builder');setCode(null)}}><LayoutTemplate size={16}/> {t("Website Builder")} <ArrowUpRight size={14}/></button><button onClick={()=>{setShowProjects(true)}}><FolderOpen size={16}/> {t("My Projects")} <span>{projectCount}</span></button><div className="studio-profile"><span className="studio-profile-icon">{user?.email.charAt(0).toUpperCase()}</span><span>{user?.email}<small>Local development workspace</small></span></div></div>
       </div>
       <div className="studio-main">
-        <div className="studio-toolbar"><div className="studio-toolbar-start">{!studioSidebarOpen&&<button onClick={()=>setStudioSidebarOpen(true)} title="Open sidebar"><PanelLeftOpen size={18}/></button>}<span className="studio-current">VELQOZA AI <ChevronDown size={13}/></span><span className="studio-beta">STUDIO</span></div><div className="studio-toolbar-actions"><button onClick={()=>void openStudioMemory()} title="Review or delete automatically saved memory"><BrainCircuit size={16}/> {t("Manage memory")}</button><button className={studioPluginsOpen?'active':''} onClick={()=>setStudioPluginsOpen(v=>!v)}><Plug size={16}/> {t("Plugins")} {enabledPlugins.length>0&&<b>{enabledPlugins.length}</b>}</button><button onClick={()=>{setStudioAttachProject(v=>!v)}} className={studioAttachProject&&code?'active':''}><Layers3 size={16}/>{t(studioAttachProject&&code?'Project attached':'Project context')}</button></div></div>
+        <div className="studio-toolbar"><div className="studio-toolbar-start">{!studioSidebarOpen&&<button onClick={()=>setStudioSidebarOpen(true)} title="Open sidebar"><PanelLeftOpen size={18}/></button>}<span className="studio-current">VELQOZA AI <ChevronDown size={13}/></span><span className="studio-beta">STUDIO</span></div><div className="studio-toolbar-actions"><ModelPicker value={selectedModel} options={modelOptions} busy={busy||studioBusy} onChange={chooseAiModel}/><button onClick={()=>void openStudioMemory()} title="Review or delete automatically saved memory"><BrainCircuit size={16}/> {t("Manage memory")}</button><button className={studioPluginsOpen?'active':''} onClick={()=>setStudioPluginsOpen(v=>!v)}><Plug size={16}/> {t("Plugins")} {enabledPlugins.length>0&&<b>{enabledPlugins.length}</b>}</button><button onClick={()=>{setStudioAttachProject(v=>!v)}} className={studioAttachProject&&code?'active':''}><Layers3 size={16}/>{t(studioAttachProject&&code?'Project attached':'Project context')}</button></div></div>
         {studioMemoryOpen && <div className="studio-plugin-drawer" style={{padding:16}}>
           <div className="studio-drawer-title"><div><span>{t("ACCOUNT MEMORY")}</span><h3>{t("What VELQZA remembers")}</h3><p>VELQOZA automatically recalls relevant previous chats and some durable preferences. This panel lets you inspect, add, or delete saved facts. Not every past detail can be remembered.</p></div><button onClick={()=>setStudioMemoryOpen(false)} title="Close memory"><X size={18}/></button></div>
           <div style={{display:'flex',gap:8,margin:'12px 0',flexWrap:'wrap'}}>
@@ -1253,7 +1294,7 @@ export default function App() {
           {draftAvailable && <div className="prompt-draft-label"><RotateCcw size={13}/> Your last unfinished prompt was restored <button onClick={()=>{setPrompt('');setDraftAvailable(false)}}>{t("Clear")}</button></div>}
           <div style={{padding:'8px 14px',display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}><UsageItem compact item={usageInfo?.usage.generate} label={t("Website generations available")} now={usageNow}/></div>
           <div className="prompt-controls">
-            <div className="selects">
+            <div className="selects"><ModelPicker value={selectedModel} options={modelOptions} busy={busy||studioBusy} onChange={chooseAiModel}/>
               <label><LayoutTemplate size={14}/><select value={category} onChange={e=>setCategory(e.target.value)}>{['Business','Portfolio','E-commerce','Restaurant','Blog','Agency','Landing Page','SaaS','Other'].map(x=><option value={x} key={x}>{t(x)}</option>)}</select><ChevronDown size={13}/></label>
               <label><Palette size={14}/><select value={style} onChange={e=>setStyle(e.target.value)}>{['Minimal','Modern','Luxury','Futuristic','Creative'].map(x=><option value={x} key={x}>{t(x)}</option>)}</select><ChevronDown size={13}/></label>
               <label title={t('Website language')}><Globe2 size={14}/><select aria-label={t('Website language')} value={siteLanguage} onChange={e=>setSiteLanguage(e.target.value as 'auto'|'en'|'ar'|'he')}><option value="auto">{t('Auto-detect language')}</option><option value="en">English</option><option value="ar">العربية</option><option value="he">עברית</option></select><ChevronDown size={13}/></label>
@@ -1312,7 +1353,7 @@ export default function App() {
       <div className="workspace-grid">
         <aside className="assistant-panel">
           <div className="assistant-title"><div className="assistant-icon"><Sparkles size={16}/></div><div><strong>{t("VELQOZA assistant")}</strong><small>{t("AI DESIGN PARTNER")}</small></div><span className="online-dot"/></div>
-          <div className="assistant-context"><span className="context-label">{t("CURRENT PROJECT")}</span><strong>{code.title}</strong><p>{code.description || 'Your website is ready to refine.'}</p></div>
+          <div className="assistant-context"><ModelPicker value={selectedModel} options={modelOptions} busy={busy||studioBusy} onChange={chooseAiModel}/><span className="context-label">{t("CURRENT PROJECT")}</span><strong>{code.title}</strong><p>{code.description || 'Your website is ready to refine.'}</p></div>
           <div className="chat-area" ref={chatAreaRef} role="log" aria-label="Website edit conversation">
             {messages.length===0 ? <div className="chat-empty"><div className="chat-spark"><WandSparkles size={22}/></div><strong>{t("What should we improve?")}</strong><p>{t("Ask for a change and I'll update your existing website code.")}</p><div className="suggestions">{['Make the design more premium','Add a pricing section','Improve mobile responsiveness','Use a darker color palette'].map(s=><button key={s} onClick={()=>setChat(t(s))}>{t(s)}<ArrowUpRight size={12}/></button>)}</div></div> : messages.map((m,i)=><div key={i} className={`chat-message ${m.role}`}><span>{m.role==='user'?'YOU':'VELQOZA AI'}</span><p>{m.text}</p></div>)}
             {busy && <div className="typing"><span/><span/><span/> {t("Updating your website...")}</div>}
