@@ -1,44 +1,56 @@
 # VELQOZA AI
 
-An AI website-builder starter project. Users describe a website, the AI returns complete HTML/CSS/JS files, and the app shows a live preview.
+A full-stack AI website builder foundation: React + TypeScript + Tailwind, Express API, OpenAI Responses API, SQLite project storage, JWT authentication, live sandboxed preview, iterative AI edits, and ZIP/source export.
 
-## Important: how it works
-
-This project has a frontend **and** a small Node.js backend. GitHub Pages alone cannot run the backend or securely store an AI API key. Deploy the whole project to a Node.js host such as Render, Railway, or another service that supports Node.
+## Requirements
+- Node.js 20+
+- npm 10+
+- An OpenAI API key with access to the model configured in `OPENAI_MODEL`
 
 ## Run locally
+1. Copy `.env.example` to `server/.env` and set `OPENAI_API_KEY` and a strong `JWT_SECRET`.
+2. Install dependencies: `npm install`
+3. Start both apps: `npm run dev`
+4. Open http://localhost:5173
 
-1. Install Node.js 18 or newer.
-2. Open this folder in a terminal.
-3. Run `npm install`.
-4. Copy `.env.example` to `.env`.
-5. Create a Gemini API key in Google AI Studio, then add it as `AI_API_KEY`. The project is preconfigured to use Gemini's OpenAI-compatible endpoint.
-6. The defaults are `https://generativelanguage.googleapis.com/v1beta/openai` and `gemini-3.8-flash`; change them only if you choose another compatible model/provider.
-7. Run `npm start`.
-8. Open `http://localhost:3000`.
+The API listens on http://localhost:8787. The Vite dev server proxies `/api` to it.
 
-## Deploy
+## AI integration
+The server calls the OpenAI Responses API and requests a strict JSON Schema response containing `html`, `css`, `js`, `title`, and `description`. Generation and edits are real model calls; there is no mock generation fallback. If the key is missing or the model call fails, the UI displays the server error.
 
-- Push this folder to a GitHub repository.
-- Create a new **Web Service** on a Node.js hosting provider and connect the repository.
-- Build command: `npm install`
-- Start command: `npm start`
-- Add environment variables in the host dashboard: `AI_API_KEY`, `AI_BASE_URL`, and `AI_MODEL`.
-- Deploy and open the URL provided by the host.
+API reference: https://developers.openai.com/api/reference/resources/responses/methods/create
+Structured outputs: https://developers.openai.com/api/docs/guides/structured-outputs
 
-## Security
+## Accounts and projects
+- Email/password signup and login are implemented with bcrypt password hashing and signed JWTs. Website generation and editing are available before signup; an account is required to save projects.
+- SQLite stores users and projects in `server/data/velqoza.sqlite`.
+- The app stores the token in browser localStorage. For a public production launch, move sessions to secure, HttpOnly, SameSite cookies, add email verification/password reset, CSRF protections, backups, and account deletion workflows.
+- SQLite is suitable for local development/small deployments. Use managed Postgres for multi-instance production deployments.
 
-- Never commit `.env`.
-- Never place the AI API key in `public/app.js`, HTML, or CSS.
-- Add rate limiting, usage limits, and authentication before making the service public. API usage may cost money depending on the provider and model.
+## Preview and security notes
+The generated site is rendered in a sandboxed iframe (`allow-scripts`, without `allow-same-origin`) to isolate it from the builder origin. The model-generated HTML/CSS/JS is untrusted content. Treat preview code as potentially unsafe, keep the sandbox restrictions, and consider a dedicated isolated preview origin plus CSP and resource allowlists before public launch. Exported websites run outside the builder's sandbox.
 
-## Current MVP features
+## Production checklist
+- Set `CLIENT_ORIGIN` to the exact deployed frontend origin.
+- Use HTTPS and a strong randomly generated `JWT_SECRET`.
+- Configure secrets in your hosting provider, never in frontend environment variables.
+- Add request quotas/billing controls and monitoring for AI usage.
+- Add managed database, backups, email verification, password reset, abuse reporting, and security review.
+- Review generated code and third-party assets before publishing.
 
-- AI prompt chat
-- Generates complete `index.html`, `style.css`, and `script.js`
-- Live preview in a sandboxed iframe
-- Basic code editor and apply changes
-- Download generated files
-- Mobile-responsive builder interface
+## Features
+- Prompt-led website generation with category, style, and color preferences
+- Desktop/tablet/mobile preview
+- AI editing that sends the existing website code as context
+- Download HTML, CSS, JS, and a complete ZIP
+- Signup/login and persistent saved projects
+- Rename, reopen, and delete projects
+- Example prompts and responsive SaaS landing page
 
-This is a working starter/MVP, not yet a full Lovable replacement. Project persistence, user accounts, database, secure publishing, billing, and robust file editing still need to be added.
+
+## Full-stack project export (upgrade)
+The AI can now return `extraFiles` alongside root HTML pages, shared CSS, and shared JS. The application retains those extra project source files in the project database and puts them into Export ZIP **at their relative paths** (`server.js`, `package.json`, `server/db.js`, `.env.example`, `tests/...`, etc.). Legacy single-page and multi-page projects still load.
+
+**Important:** The live preview is **frontend-only**. It does not start generated Express servers, install npm dependencies or migrate databases. Backend features require exporting the project, reviewing source and dependencies, configuring only placeholder env vars, and starting the generated server separately in a controlled local environment. A generated admin login is **not automatically secure**; review authentication, session management, CSRF, input validation and tests before production deployment. Never use real customers' data to test AI-generated code.
+
+Run `npm --workspace server run test` for project filename-validation tests after `npm install`.

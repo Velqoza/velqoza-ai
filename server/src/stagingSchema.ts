@@ -1,0 +1,165 @@
+// Idempotent setup ONLY for a fresh, isolated staging PostgreSQL database.
+// Never run against the main production database. No drops, truncates, or data imports.
+export const stagingSchemaSql = `
+CREATE SCHEMA IF NOT EXISTS velqoza_ai;
+CREATE TABLE IF NOT EXISTS velqoza_ai.users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  is_banned INTEGER NOT NULL DEFAULT 0,
+  email_verified INTEGER NOT NULL DEFAULT 1,
+  token_version INTEGER NOT NULL DEFAULT 0,
+  display_name TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS velqoza_ai.projects (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, code_json TEXT NOT NULL,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS projects_user_updated ON velqoza_ai.projects(user_id,updated_at DESC);
+CREATE TABLE IF NOT EXISTS velqoza_ai.ai_threads (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ai_threads_user_updated ON velqoza_ai.ai_threads(user_id,updated_at DESC);
+CREATE TABLE IF NOT EXISTS velqoza_ai.ai_thread_messages (
+  id TEXT PRIMARY KEY,
+  thread_id TEXT NOT NULL REFERENCES velqoza_ai.ai_threads(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK(role IN ('user','assistant')),
+  content TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ai_messages_thread ON velqoza_ai.ai_thread_messages(thread_id,created_at);
+CREATE TABLE IF NOT EXISTS velqoza_ai.ai_usage (
+  user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+  day TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('generate','edit','studio')),
+  count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(user_id,day,kind)
+);
+CREATE TABLE IF NOT EXISTS velqoza_ai.credit_wallets (
+  user_id TEXT PRIMARY KEY REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+  balance INTEGER NOT NULL DEFAULT 0 CHECK(balance >= 0)
+);
+CREATE TABLE IF NOT EXISTS velqoza_ai.credit_ledger (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+  delta INTEGER NOT NULL CHECK(delta != 0),
+  kind TEXT NOT NULL, reference_id TEXT UNIQUE, created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS credit_ledger_user_created ON velqoza_ai.credit_ledger(user_id,created_at DESC);
+CREATE TABLE IF NOT EXISTS velqoza_ai.credit_vouchers (
+  id TEXT PRIMARY KEY,
+  code_hash TEXT NOT NULL UNIQUE,
+  credits INTEGER NOT NULL CHECK(credits > 0 AND credits <= 100000),
+  created_at TEXT NOT NULL, expires_at TEXT,
+  redeemed_by TEXT REFERENCES velqoza_ai.users(id), redeemed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS credit_vouchers_expiry ON velqoza_ai.credit_vouchers(expires_at);
+CREATE TABLE IF NOT EXISTS velqoza_ai.admin_audit (
+  id TEXT PRIMARY KEY, admin_id TEXT NOT NULL, target_user_id TEXT,
+  action TEXT NOT NULL, detail TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS admin_audit_created ON velqoza_ai.admin_audit(created_at DESC);
+CREATE TABLE IF NOT EXISTS velqoza_ai.email_auth_tokens (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+  purpose TEXT NOT NULL CHECK(purpose IN ('verify','reset')),
+  token_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS email_auth_tokens_user_purpose ON velqoza_ai.email_auth_tokens(user_id,purpose);
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.published_sites (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL UNIQUE REFERENCES velqoza_ai.projects(id) ON DELETE CASCADE,
+  slug TEXT NOT NULL UNIQUE,
+  code_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS published_sites_user ON velqoza_ai.published_sites(user_id);
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.published_site_names (
+ site_name TEXT PRIMARY KEY,
+ publication_id TEXT NOT NULL UNIQUE REFERENCES velqoza_ai.published_sites(id) ON DELETE CASCADE,
+ user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+ created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.media_assets (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+  filename TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  data_base64 TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS media_assets_user_created ON velqoza_ai.media_assets(user_id,created_at DESC);
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.studio_memories (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+ content TEXT NOT NULL,
+ created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS studio_memories_owner ON velqoza_ai.studio_memories(user_id,created_at DESC);
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.ai_window_usage (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL CHECK(kind IN ('generate','edit','studio')),
+ created_at_ms BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ai_window_usage_user_kind_time ON velqoza_ai.ai_window_usage(user_id,kind,created_at_ms);
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.package_requests (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+ selection_json TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'pending',
+ created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS package_requests_owner ON velqoza_ai.package_requests(user_id,created_at DESC);
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.usage_quotas (
+ user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL CHECK(kind IN ('studio','edit','generate')),
+ remaining BIGINT NOT NULL DEFAULT 0 CHECK(remaining>=0),
+ PRIMARY KEY(user_id,kind)
+);
+CREATE TABLE IF NOT EXISTS velqoza_ai.package_payments (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+ request_id TEXT NOT NULL UNIQUE REFERENCES velqoza_ai.package_requests(id) ON DELETE CASCADE,
+ paypal_order_id TEXT UNIQUE,
+ paypal_capture_id TEXT UNIQUE,
+ amount_cents BIGINT NOT NULL,
+ currency TEXT NOT NULL,
+ selection_json TEXT NOT NULL,
+ status TEXT NOT NULL,
+ created_at TEXT NOT NULL,
+ fulfilled_at TEXT
+);
+CREATE INDEX IF NOT EXISTS package_payments_owner ON velqoza_ai.package_payments(user_id,created_at DESC);
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.quota_reservations (
+ id TEXT PRIMARY KEY,
+ user_id TEXT NOT NULL REFERENCES velqoza_ai.users(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL,
+ refunded INTEGER NOT NULL DEFAULT 0,
+ created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS velqoza_ai.payment_webhook_events (
+  id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  capture_id TEXT,
+  payment_id TEXT,
+  received_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS webhook_events_capture ON velqoza_ai.payment_webhook_events(capture_id);
+`;
