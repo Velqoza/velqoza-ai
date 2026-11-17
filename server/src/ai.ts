@@ -1,5 +1,6 @@
 
 import OpenAI from 'openai'
+import { resolveOpenAIModel, type AiModelChoice } from './modelSelection.js'
 import { z } from 'zod'
 import type { SiteCode } from './types.js'
 import { validateExtraFiles } from './projectFiles.js'
@@ -66,7 +67,7 @@ function getClient() {
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: aiTimeoutMs(), maxRetries: 0 })
 }
 
-const model = () => process.env.OPENAI_MODEL || 'gpt-6.1-terra'
+const model = (choice: AiModelChoice = 'default') => resolveOpenAIModel(choice)
 
 const systemPrompt = `You are VELQOZA AI, a senior full-stack engineer and product designer. Return only the specified JSON fields.
 Use pages[] for REAL separate root-level .html pages (each HTML body fragment with no html/head/body wrapper), and css/js for shared browser styles.css and script.js. Always include index.html. Link pages using relative filenames. For simple frontend websites, set extraFiles to [].
@@ -78,9 +79,9 @@ function validFilename(filename: string) {
   return /^[a-z0-9][a-z0-9_-]*\.html$/i.test(filename) && filename.length <= 80
 }
 
-async function callModel(input: string): Promise<SiteCode> {
+async function callModel(input: string, choice: AiModelChoice = 'default'): Promise<SiteCode> {
   const response = await getClient().responses.create({
-    model: model(),
+    model: model(choice),
     input: [
       { role: 'system', content: [{ type: 'input_text', text: systemPrompt }] },
       { role: 'user', content: [{ type: 'input_text', text: input }] }
@@ -146,6 +147,7 @@ export async function generateWebsite(input: {
   style: string
   colors: string
   language?:'auto'|'en'|'ar'|'he'
+  model?: AiModelChoice
 }) {
   const forcedLanguage=input.language==='ar'?'Arabic':input.language==='he'?'Hebrew':input.language==='en'?'English':null
   return callModel(`Create a complete website based on this brief.
@@ -154,13 +156,13 @@ Visual style: ${input.style}
 Color direction: ${input.colors}
 User brief: ${input.prompt}
 Content language: ${forcedLanguage?`Write all user-facing website text in ${forcedLanguage}; use ${input.language==='ar'?'lang=ar and dir=rtl':input.language==='he'?'lang=he and dir=rtl':'lang=en and dir=ltr'} where appropriate.`:'Detect the preferred language from the user brief and respond in that language.'}
-Make the website feel intentionally art-directed and include the sections appropriate to the requested site. If the brief asks for multiple pages, return each as a distinct entry in pages[]. If it asks for a backend, database, server API, authentication, tests or a full-stack app, include actual complete project source files in extraFiles[].`)
+Make the website feel intentionally art-directed and include the sections appropriate to the requested site. If the brief asks for multiple pages, return each as a distinct entry in pages[]. If it asks for a backend, database, server API, authentication, tests or a full-stack app, include actual complete project source files in extraFiles[].`, input.model)
 }
 
-export async function editWebsite(instruction: string, current: SiteCode): Promise<SiteCode> {
+export async function editWebsite(instruction: string, current: SiteCode, choice: AiModelChoice = 'default'): Promise<SiteCode> {
   const existingPages = current.pages || {'index.html': current.html}
   const response = await getClient().responses.create({
-    model: model(),
+    model: model(choice),
     input: [
       {role: 'system', content: [{type:'input_text', text: `${systemPrompt}
 EDIT MODE: You are modifying an existing project. Return ONLY files that actually changed, never every file again.
@@ -211,7 +213,8 @@ export async function chatWithStudio(
   messages: {role:'user'|'assistant';content:string}[],
   pluginReports: {plugin:string;report:string}[],
   projectSummary?:string,
-  context?:{memoryItems?:string[];priorConversation?:string[];searchWeb?:boolean}
+  context?:{memoryItems?:string[];priorConversation?:string[];searchWeb?:boolean},
+  choice: AiModelChoice = 'default'
 ): Promise<string> {
   const recent = messages.slice(-16)
   const safeReports = pluginReports.map(p=>`[${p.plugin}]\n${p.report}`).join('\n\n')
@@ -219,7 +222,7 @@ export async function chatWithStudio(
   const prior=(context?.priorConversation||[]).slice(0,10).map(x=>'- '+x.slice(0,350)).join('\n')
   const searchWeb=true // AI Studio gets the tool by default; model chooses when to search.
   const response = await getClient().responses.create({
-    model: process.env.OPENAI_WEB_MODEL || model(),
+    model: choice === 'default' ? (process.env.OPENAI_WEB_MODEL || model()) : model(choice),
     tools:[{type:'web_search' as const,search_context_size:'medium' as const}],
     input: [
       {role:'system',content:[{type:'input_text',text:`You are VELQOZA AI Studio, a helpful precise conversational assistant. Understand Arabic, Hebrew, and English and reply in the language of the user's latest message (Arabic dialect if Arabic). If the user switches languages, follow the latest message unless explicitly instructed otherwise.
