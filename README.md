@@ -54,3 +54,20 @@ The AI can now return `extraFiles` alongside root HTML pages, shared CSS, and sh
 **Important:** The live preview is **frontend-only**. It does not start generated Express servers, install npm dependencies or migrate databases. Backend features require exporting the project, reviewing source and dependencies, configuring only placeholder env vars, and starting the generated server separately in a controlled local environment. A generated admin login is **not automatically secure**; review authentication, session management, CSRF, input validation and tests before production deployment. Never use real customers' data to test AI-generated code.
 
 Run `npm --workspace server run test` for project filename-validation tests after `npm install`.
+
+
+## Optional OpenAI model selection (production-next)
+
+The React builder, project editor, and AI Studio now offer a shared **AI model** selector. The default ("Standard AI") preserves the currently configured `OPENAI_MODEL` and `OPENAI_WEB_MODEL` behavior. Optional server-approved choices are **GPT-6.1 Sol** (`gpt-6.1-sol`) and **GPT-6 Astra** (`gpt-6-astra`). Do not configure invented `gpt-6.2-*` IDs: use an actual model ID available in your OpenAI API organization.
+
+In the Render service's **Environment** settings, ensure:
+- `OPENAI_API_KEY`: secret value configured **only on the server**.
+- `OPENAI_MODELS_ENABLED=true` to allow users to select the advanced models. If false, advanced choices are visible but disabled.
+- `OPENAI_DAILY_LIMIT=20` and `OPENAI_PER_IP_DAILY_LIMIT=5` (or a stricter value) for basic safeguards.
+
+`GET /api/ai/models` returns the public model catalog without disclosing keys. `POST /api/ai/generate`, `POST /api/ai/edit`, and `POST /api/studio/threads/:id/messages` accept a model ID, validate it on the server, and apply existing authentication and Credits rules. Existing clients sending no model still use the original default.
+
+**API costs:** different models have different token prices, but the existing internal VELQOZA credit prices are unchanged in this initial version. Verify margins and add robust per-account, persistent, monetary/usage limits before opening premium models to untrusted users. Daily limits in this implementation are *in-memory per instance*, not a guaranteed billing cap: they reset on server restart and do not span multiple instances. Also use an OpenAI billing budget/alerts. Model names and availability should be confirmed with current OpenAI API documentation.
+
+The updated feature is on the `staging-production-prep` branch, which is the Render `velqoza-ai-production-next` source branch. That Render service has automatic deployment disabled; publishing still requires a deliberate deploy.
+
