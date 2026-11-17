@@ -752,20 +752,26 @@ app.delete('/api/admin/users/:id',requireAuth,requireAdmin,(req:AuthRequest,res)
 app.post('/api/ai/generate',requireAuth, singleFlight('generate'), aiBudgetGuard('generate'), async (req,res) => {
   const parsed = generateBody.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error:'Please provide a website description (at least 8 characters) and valid design settings.' })
-  const allowance = advancedModelAllowance(parsed.data.model,(req as AuthRequest).userId!,req.ip)
-  if (!allowance.ok) return res.status(allowance.reason?.includes('not enabled')?503:429).json({error:allowance.reason})
   const creditRef=reserveOrReject(req as AuthRequest,res,'generate')
   if (!creditRef) return
+  const allowance = advancedModelAllowance(parsed.data.model,(req as AuthRequest).userId!,req.ip)
+  if (!allowance.ok) {
+    refundAI((req as AuthRequest).userId!,creditRef)
+    return res.status(allowance.reason?.includes('not enabled')?503:429).json({error:allowance.reason})
+  }
   try { const code = await generateWebsite(parsed.data); res.json({ code, creditsRemaining:getCredits((req as AuthRequest).userId!) }) }
   catch(error) { refundAI((req as AuthRequest).userId!,creditRef); console.error('Generation error',error); res.status(502).json({ error: publicAiError(error) }) }
 })
 app.post('/api/ai/edit',requireAuth, singleFlight('edit'), aiBudgetGuard('edit'), async (req,res) => {
   const parsed = editBody.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error:'Please provide an edit instruction and valid existing website code.' })
-  const allowance = advancedModelAllowance(parsed.data.model,(req as AuthRequest).userId!,req.ip)
-  if (!allowance.ok) return res.status(allowance.reason?.includes('not enabled')?503:429).json({error:allowance.reason})
   const creditRef=reserveOrReject(req as AuthRequest,res,'edit')
   if (!creditRef) return
+  const allowance = advancedModelAllowance(parsed.data.model,(req as AuthRequest).userId!,req.ip)
+  if (!allowance.ok) {
+    refundAI((req as AuthRequest).userId!,creditRef)
+    return res.status(allowance.reason?.includes('not enabled')?503:429).json({error:allowance.reason})
+  }
   try { const code = await editWebsite(parsed.data.instruction,parsed.data.code,parsed.data.model); res.json({ code, creditsRemaining:getCredits((req as AuthRequest).userId!) }) }
   catch(error) { refundAI((req as AuthRequest).userId!,creditRef); console.error('Edit error',error); res.status(502).json({ error: publicAiError(error) }) }
 })
@@ -864,10 +870,13 @@ app.post('/api/studio/threads/:id/messages',requireAuth, singleFlight('studio'),
   if (count>=500) return res.status(400).json({error:'Conversation reached its message limit. Start a new conversation.'})
   const reports=runStudioPlugins(pluginIds,projectCode)
   const history=db.prepare('SELECT role, content FROM ai_thread_messages WHERE thread_id=? ORDER BY created_at DESC, rowid DESC LIMIT 15').all(req.params.id) as {role:'user'|'assistant';content:string}[]
-  const allowance = advancedModelAllowance(model,req.userId!,req.ip)
-  if (!allowance.ok) return res.status(allowance.reason?.includes('not enabled')?503:429).json({error:allowance.reason})
   const creditRef=reserveOrReject(req,res,'studio')
   if (!creditRef) return
+  const allowance = advancedModelAllowance(model,req.userId!,req.ip)
+  if (!allowance.ok) {
+    refundAI(req.userId!,creditRef)
+    return res.status(allowance.reason?.includes('not enabled')?503:429).json({error:allowance.reason})
+  }
   try {
     const memories=db.prepare('SELECT content FROM studio_memories WHERE user_id=? ORDER BY created_at DESC LIMIT 30').all(req.userId) as {content:string}[]
     const priorConversation=priorStudioContext(req.userId!,req.params.id,message)
