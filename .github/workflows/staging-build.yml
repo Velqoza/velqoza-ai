@@ -3,7 +3,7 @@ on:
   push:
     branches: [staging-production-prep]
   pull_request:
-    branches: [main]
+    branches: [main, staging-production-prep]
 permissions:
   contents: write
 jobs:
