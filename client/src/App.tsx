@@ -500,6 +500,23 @@ export default function App() {
     return () => window.removeEventListener('message', receive)
   }, [code])
 
+  // Generated scripts cannot execute in a srcDoc iframe: it inherits the
+  // application's strict CSP. Load a dedicated sandboxed runtime response and
+  // send the latest HTML after its bootstrap reports ready.
+  useEffect(() => {
+    const frame = iframeRef.current
+    if (!code || !frame || tab !== 'editor') return
+    let sent = false
+    const receiveReady = (event: MessageEvent) => {
+      if (event.source !== frame.contentWindow || event.data?.type !== 'velqoza-preview-ready' || sent) return
+      sent = true
+      frame.contentWindow?.postMessage({type: 'velqoza-preview-document', html: buildDocument(code, previewPage)}, '*')
+    }
+    window.addEventListener('message', receiveReady)
+    frame.src = '/preview-runtime'
+    return () => window.removeEventListener('message', receiveReady)
+  }, [code, previewPage, tab])
+
   useEffect(() => {
     // Restore the signed-in user separately from optional project loading.
     // A temporary backend outage or failing projects endpoint must not erase the saved session.
@@ -1278,7 +1295,7 @@ export default function App() {
           {Object.keys(code.files || {}).length > 0 && <div className="project-file-list"><strong>Project source ({Object.keys(code.files || {}).length} extra files)</strong><span>Backend &amp; tests are included in ZIP but not executed in this frontend preview.</span><div className="project-file-items">{Object.entries(code.files || {}).map(([name, content]) => <button key={name} onClick={()=>downloadOne(name.split('/').pop() || name, content)} title={`Download ${name}`}>{name} ↓</button>)}</div></div>}
           {historyOpen && <div style={{padding:14,borderBottom:'1px solid rgba(255,255,255,.12)'}}><strong>Version history (current session)</strong><p style={{fontSize:12,opacity:.75}}>Previous edits are kept in this session only. They are not yet permanent version history.</p><div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}>{undoStack.slice().reverse().map((version,index)=><button className="outline-btn" key={index} onClick={()=>{if(!window.confirm('Restore this earlier snapshot? Current unsaved code will be replaced.'))return;setCode(version);setUndoStack(stack=>stack.slice(0,stack.length-index-1));setHistoryOpen(false);flash('Snapshot restored. Save to keep changes.')}}>Version {undoStack.length-index}</button>)}</div></div>}
           {inspectorOpen && <div className="source-explorer"><div className="source-explorer-tree"><div className="source-explorer-heading"><FolderTree size={15}/> PROJECT FILES <span>{allFiles.length}</span></div><input type="search" aria-label="Filter project files" placeholder="Find a file..." value={inspectorSearch} onChange={e=>setInspectorSearch(e.target.value)}/><div className="source-explorer-files">{visibleFiles.map(name=><button key={name} className={inspectorFile===name?'selected':''} onClick={()=>{setInspectorFile(name);setSourceEditing(false)}}><FileCode2 size={13}/>{name}</button>)}</div></div><div className="source-explorer-code"><div className="source-explorer-bar"><strong>{inspectorFile}</strong><div>{sourceEditing ? <><button onClick={applySourceEdit}><Check size={14}/> Apply changes</button><button onClick={()=>setSourceEditing(false)}>{t("Cancel")}</button></> : <button onClick={()=>{setSourceDraft(rawFileContent(inspectorFile));setSourceEditing(true)}}><Pencil size={14}/> Edit</button>}<button onClick={()=>{navigator.clipboard.writeText(inspectorContent(inspectorFile));flash('Source copied.')}} title="Copy file"><Copy size={14}/> Copy</button><button onClick={()=>downloadOne(inspectorFile.split('/').pop()||inspectorFile,inspectorContent(inspectorFile))} title="Download file"><Download size={14}/></button><button onClick={()=>setInspectorOpen(false)} title="Close file explorer"><X size={15}/></button></div></div>{sourceEditing ? <textarea aria-label="Edit source code" value={sourceDraft} onChange={e=>setSourceDraft(e.target.value)} spellCheck={false} style={{width:'100%',height:340,resize:'vertical',background:'#11121a',color:'#e9e9f4',fontFamily:'monospace',fontSize:12,padding:12,border:'1px solid #414159',borderRadius:8}}/> : <pre><code>{inspectorContent(inspectorFile)}</code></pre>}</div></div>}
-          <div className="preview-stage"><div className={`preview-frame ${mode}`} style={{width:frameWidth}}><iframe ref={iframeRef} title="Generated website preview" sandbox="allow-scripts" srcDoc={buildDocument(code, previewPage)} /></div></div>
+          <div className="preview-stage"><div className={`preview-frame ${mode}`} style={{width:frameWidth}}><iframe ref={iframeRef} title="Generated website preview" sandbox="allow-scripts" src="/preview-runtime" /></div></div>
           <div className="code-footer"><div><span className="code-live-dot"/> Frontend preview only · backend code is not running</div><div className="code-actions"><button onClick={()=>downloadOne(previewPage,buildDocument(code, previewPage, true))}><Download size={13}/> Page</button><button onClick={()=>downloadOne('styles.css',code.css)}><Download size={13}/> CSS</button><button onClick={()=>downloadOne('script.js',code.js)}><Download size={13}/> JS</button><button onClick={downloadFiles}><Download size={13}/> ZIP</button></div></div>
         </section>
       </div>
