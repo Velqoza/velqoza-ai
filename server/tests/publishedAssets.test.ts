@@ -41,7 +41,7 @@ test('only referenced additional frontend files are served, with correct MIME ty
 test('full HTML documents retain language and external links while including game assets', () => {
   const site={...eggside,html:'<!doctype html><html><head><link rel="stylesheet" href="phase2.css"><link rel="preconnect" href="https://fonts.googleapis.com"></head><body><h1>Hi</h1><script src="phase3.js"></script></body></html>'}
   const html=buildPublishedDocument(site,'index.html')
-  assert.match(html,/<html lang="en" dir="ltr">/)
+  assert.match(html, /<html(?=[^>]*\blang="en")(?=[^>]*\bdir="ltr")[^>]*>/)
   assert.ok(html.includes('https://fonts.googleapis.com'))
   assert.ok(html.indexOf('styles.css') < html.indexOf('phase2.css'))
   assert.ok(html.indexOf('script.js') < html.indexOf('phase3.js'))
