@@ -128,7 +128,7 @@ test('resuming a saved order checks its exact amount, identity and approval URL 
   }
 })
 
-test('Google Pay Sandbox orders include the payment source required by the provider',async()=>{
+test('removed Google Pay is rejected before any provider network request, while Apple Pay remains supported',async()=>{
   const keys=['PAYPAL_ENV','PAYPAL_CLIENT_ID','PAYPAL_CLIENT_SECRET','STAGING_INIT_SCHEMA','RENDER_SERVICE_ID'] as const
   const old=Object.fromEntries(keys.map(k=>[k,process.env[k]]))
   const fetchBefore=globalThis.fetch
@@ -145,15 +145,20 @@ test('Google Pay Sandbox orders include the payment source required by the provi
         const payload=JSON.parse(String(init?.body))
         assert.equal(payload.intent,'CAPTURE')
         assert.equal(payload.purchase_units[0].amount.value,'25.00')
-        assert.equal(payload.payment_source?.google_pay?.attributes?.verification?.method,'SCA_WHEN_REQUIRED')
+        assert.equal(payload.payment_source?.google_pay,undefined)
         assert.equal(payload.payment_source?.paypal,undefined)
-        return new Response(JSON.stringify({id:'ORDERGOOGLETEST01',status:'CREATED',links:[]}),{status:201})
+        return new Response(JSON.stringify({id:'ORDERAPPLETEST01',status:'CREATED',links:[]}),{status:201})
       }
       throw new Error('Unexpected outgoing URL')
     }
-    const order=await createCheckout('payment-google-test',2500,'Starter','https://staging.example.invalid','googlepay')
-    assert.equal(order.orderId,'ORDERGOOGLETEST01')
-    assert.equal(order.approvalUrl,null)
+    await assert.rejects(
+      createCheckout('payment-google-test',2500,'Starter','https://staging.example.invalid','googlepay' as 'applepay'),
+      /Unsupported payment method/
+    )
+    assert.equal(orderRequests,0)
+    const apple=await createCheckout('payment-apple-test',2500,'Starter','https://staging.example.invalid','applepay')
+    assert.equal(apple.orderId,'ORDERAPPLETEST01')
+    assert.equal(apple.approvalUrl,null)
     assert.equal(orderRequests,1)
   }finally{
     globalThis.fetch=fetchBefore

@@ -238,7 +238,7 @@ const customSelection=z.object({type:z.literal('custom'),credits:quantity,messag
 })
 const packageSelection=z.object({type:z.literal('package'),packageId:z.enum(['starter','pro','business','agency'])}).strict()
 const packageRequestBody=z.union([packageSelection,customSelection])
-const checkoutRequestBody=z.object({requestId:z.string().uuid(),method:z.enum(['paypal','card','googlepay','applepay']).optional()}).strict()
+const checkoutRequestBody=z.object({requestId:z.string().uuid(),method:z.enum(['paypal','card','applepay']).optional()}).strict()
 const paypalReturnBody=z.object({orderId:z.string().regex(/^[A-Za-z0-9]{8,32}$/)}).strict()
 
 app.get('/api/packages',requireAuth,(_req,res)=>res.json({packages:PACKAGES,customLimits:CUSTOM_LIMITS,unitPricesCents:CUSTOM_UNIT_PRICES_CENTS,checkoutEnabled:paypalReady(),paymentMode:paypalMode(),quotasActive:false,currency:'USD'}))

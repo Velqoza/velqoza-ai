@@ -232,14 +232,16 @@ export function validatedGrants(raw:string,paidCents:number):PaymentGrants {
   if(grants.credits+grants.messages+grants.edits+grants.generations<=0)throw new Error('Payment snapshot has no entitlements.')
   return grants
 }
-export async function createCheckout(paymentId:string,cents:number,description:string,returnOrigin:string,method:'paypal'|'card'|'googlepay'|'applepay'='paypal'){
+export async function createCheckout(paymentId:string,cents:number,description:string,returnOrigin:string,method:'paypal'|'card'|'applepay'='paypal'){
+  // Runtime guard also blocks unsupported methods supplied by non-TypeScript clients.
+  if(!['paypal','card','applepay'].includes(method))throw new Error('Unsupported payment method.')
   if(cents<50||cents>1_000_000)throw new Error('Checkout supports orders from $0.50 to $10,000. Please reduce the selected quantities.')
   const result=await paypalRequest('POST','/v2/checkout/orders',{
     intent:'CAPTURE',
     purchase_units:[{reference_id:paymentId,custom_id:paymentId,description:description.slice(0,120),amount:{currency_code:'USD',value:(cents/100).toFixed(2)}}],
     ...(method==='paypal'?{payment_source:{paypal:{experience_context:{brand_name:'VELQOZA AI',shipping_preference:'NO_SHIPPING',user_action:'PAY_NOW',
       return_url:returnOrigin+'/?payment=return',cancel_url:returnOrigin+'/?payment=cancel'}}}}
-      :method==='googlepay'?{payment_source:{google_pay:{attributes:{verification:{method:'SCA_WHEN_REQUIRED'}}}}}:{})
+      :{})
   },'create-'+paymentId)
   if(!result.id)throw new Error('PayPal did not return an order ID.')
   return {orderId:result.id,approvalUrl:method==='paypal'?validatedApprovalUrl(result):null}
