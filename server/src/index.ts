@@ -15,6 +15,7 @@ import { probeSupabaseDatabase } from './supabaseProbe.js'
 import { applyOwnerTenGenerationGrant } from './oneTimeGenerationGrant.js'
 import { requireAuth, signToken } from './auth.js'
 import { generateWebsite, editWebsite, chatWithStudio } from './ai.js'
+import { aiModelField, modelCatalog, makeAdvancedModelLimiter } from './modelSelection.js'
 import { studioPluginCatalog, runStudioPlugins } from './studioPlugins.js'
 import type { AuthRequest, SiteCode } from './types.js'
 import { validateExtraFiles } from './projectFiles.js'
@@ -173,10 +174,12 @@ function publicAiError(error:unknown) {
   if (/not configured|invalid website structure|returned an empty response|exceeded the allowed size|could not be parsed|daily/i.test(raw)) return raw.slice(0,250)
   return 'AI service could not complete the request. Check your API configuration or retry later.'
 }
+const advancedModelAllowance = makeAdvancedModelLimiter()
+app.get('/api/ai/models', (_req,res) => res.json({models:modelCatalog()}))
 const generateBody = z.object({
   prompt: z.string().trim().min(8).max(8000),
   category: z.string().min(1).max(80), style: z.string().min(1).max(80), colors: z.string().max(160),
-  language:z.enum(['auto','ar','he','en']).default('auto')
+  language:z.enum(['auto','ar','he','en']).default('auto'), model: aiModelField
 })
 const safeCode = codeSchema.superRefine((code, ctx) => {
   const fileError = validateExtraFiles(code.files)
@@ -187,7 +190,7 @@ const safeCode = codeSchema.superRefine((code, ctx) => {
     ctx.addIssue({code:'custom',message:'Invalid page list.'})
   }
 })
-const editBody = z.object({ instruction: z.string().trim().min(2).max(3000), code: safeCode })
+const editBody = z.object({ instruction: z.string().trim().min(2).max(3000), code: safeCode, model: aiModelField })
 const saveBody = z.object({ id: z.string().uuid().optional(), name: z.string().trim().min(1).max(100), code: safeCode })
 const now = () => new Date().toISOString()
 const publicUser = (id: string, email: string) => {
@@ -749,6 +752,8 @@ app.delete('/api/admin/users/:id',requireAuth,requireAdmin,(req:AuthRequest,res)
 app.post('/api/ai/generate',requireAuth, singleFlight('generate'), aiBudgetGuard('generate'), async (req,res) => {
   const parsed = generateBody.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error:'Please provide a website description (at least 8 characters) and valid design settings.' })
+  const allowance = advancedModelAllowance(parsed.data.model,(req as AuthRequest).userId!,req.ip)
+  if (!allowance.ok) return res.status(allowance.reason?.includes('not enabled')?503:429).json({error:allowance.reason})
   const creditRef=reserveOrReject(req as AuthRequest,res,'generate')
   if (!creditRef) return
   try { const code = await generateWebsite(parsed.data); res.json({ code, creditsRemaining:getCredits((req as AuthRequest).userId!) }) }
@@ -757,15 +762,17 @@ app.post('/api/ai/generate',requireAuth, singleFlight('generate'), aiBudgetGuard
 app.post('/api/ai/edit',requireAuth, singleFlight('edit'), aiBudgetGuard('edit'), async (req,res) => {
   const parsed = editBody.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error:'Please provide an edit instruction and valid existing website code.' })
+  const allowance = advancedModelAllowance(parsed.data.model,(req as AuthRequest).userId!,req.ip)
+  if (!allowance.ok) return res.status(allowance.reason?.includes('not enabled')?503:429).json({error:allowance.reason})
   const creditRef=reserveOrReject(req as AuthRequest,res,'edit')
   if (!creditRef) return
-  try { const code = await editWebsite(parsed.data.instruction,parsed.data.code); res.json({ code, creditsRemaining:getCredits((req as AuthRequest).userId!) }) }
+  try { const code = await editWebsite(parsed.data.instruction,parsed.data.code,parsed.data.model); res.json({ code, creditsRemaining:getCredits((req as AuthRequest).userId!) }) }
   catch(error) { refundAI((req as AuthRequest).userId!,creditRef); console.error('Edit error',error); res.status(502).json({ error: publicAiError(error) }) }
 })
 
 
 // AI Studio: isolated, account-owned conversations and opt-in local plugins.
-const studioMessage = z.object({searchWeb:z.boolean().default(false),message:z.string().trim().min(1).max(6000), pluginIds:z.array(z.enum(['seo-audit','accessibility','project-map','launch-checklist'])).max(4).default([]), projectCode:safeCode.optional()})
+const studioMessage = z.object({searchWeb:z.boolean().default(false),message:z.string().trim().min(1).max(6000), pluginIds:z.array(z.enum(['seo-audit','accessibility','project-map','launch-checklist'])).max(4).default([]), projectCode:safeCode.optional(), model:aiModelField})
 const threadIdSchema = z.string().uuid()
 const ownsThread = (id:string, userId:string) => !!db.prepare('SELECT 1 FROM ai_threads WHERE id=? AND user_id=?').get(id,userId)
 const serializeThread = (row:any) => ({id:row.id,title:row.title,createdAt:row.created_at,updatedAt:row.updated_at})
@@ -852,17 +859,19 @@ app.post('/api/studio/threads/:id/messages',requireAuth, singleFlight('studio'),
   if (!threadIdSchema.safeParse(req.params.id).success || !ownsThread(req.params.id,req.userId!)) return res.status(404).json({error:'Conversation not found.'})
   const parsed=studioMessage.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({error:'Message or selected plugins are invalid.'})
-  const {message,pluginIds,projectCode}=parsed.data
+  const {message,pluginIds,projectCode,model}=parsed.data
   const count=(db.prepare('SELECT COUNT(*) AS n FROM ai_thread_messages WHERE thread_id=?').get(req.params.id) as {n:number}).n
   if (count>=500) return res.status(400).json({error:'Conversation reached its message limit. Start a new conversation.'})
   const reports=runStudioPlugins(pluginIds,projectCode)
   const history=db.prepare('SELECT role, content FROM ai_thread_messages WHERE thread_id=? ORDER BY created_at DESC, rowid DESC LIMIT 15').all(req.params.id) as {role:'user'|'assistant';content:string}[]
+  const allowance = advancedModelAllowance(model,req.userId!,req.ip)
+  if (!allowance.ok) return res.status(allowance.reason?.includes('not enabled')?503:429).json({error:allowance.reason})
   const creditRef=reserveOrReject(req,res,'studio')
   if (!creditRef) return
   try {
     const memories=db.prepare('SELECT content FROM studio_memories WHERE user_id=? ORDER BY created_at DESC LIMIT 30').all(req.userId) as {content:string}[]
     const priorConversation=priorStudioContext(req.userId!,req.params.id,message)
-    const reply=await chatWithStudio([...history.reverse(),{role:'user',content:message}],reports,projectCode ? `Title: ${projectCode.title}; description: ${projectCode.description}; pages: ${Object.keys(projectCode.pages||{'index.html':projectCode.html}).join(', ')}; files: ${Object.keys(projectCode.files||{}).join(', ')}`:undefined,{memoryItems:memories.map(m=>m.content),priorConversation})
+    const reply=await chatWithStudio([...history.reverse(),{role:'user',content:message}],reports,projectCode ? `Title: ${projectCode.title}; description: ${projectCode.description}; pages: ${Object.keys(projectCode.pages||{'index.html':projectCode.html}).join(', ')}; files: ${Object.keys(projectCode.files||{}).join(', ')}`:undefined,{memoryItems:memories.map(m=>m.content),priorConversation},model)
     const stamp=now(), userId=randomUUID(),assistantId=randomUUID()
     db.transaction(()=>{
       db.prepare('INSERT INTO ai_thread_messages(id,thread_id,role,content,created_at) VALUES (?,?,?,?,?)').run(userId,req.params.id,'user',message,stamp)
