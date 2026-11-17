@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import JSZip from 'jszip'
-import { ArrowRight, ArrowUpRight, Sparkles, WandSparkles, Code2, Eye, Layers3, ShieldCheck, Zap, Menu, X, Monitor, Tablet, Smartphone, Download, Save, FolderOpen, Plus, MessageSquare, Send, LogOut, Trash2, Pencil, ChevronDown, Check, LoaderCircle, Globe2, Rocket, Palette, LayoutTemplate, ExternalLink, Copy, CircleHelp, Plug, PanelLeftClose, PanelLeftOpen, Search, BrainCircuit, Settings2, FileCode2, RotateCcw, FolderTree, UserRound, UserPlus, KeyRound, RefreshCw, UsersRound } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Sparkles, WandSparkles, Code2, Eye, Layers3, ShieldCheck, Zap, Menu, X, Monitor, Tablet, Smartphone, Maximize, Minimize, Download, Save, FolderOpen, Plus, MessageSquare, Send, LogOut, Trash2, Pencil, ChevronDown, Check, LoaderCircle, Globe2, Rocket, Palette, LayoutTemplate, ExternalLink, Copy, CircleHelp, Plug, PanelLeftClose, PanelLeftOpen, Search, BrainCircuit, Settings2, FileCode2, RotateCcw, FolderTree, UserRound, UserPlus, KeyRound, RefreshCw, UsersRound } from 'lucide-react'
 import { api } from './api'
 import {CardPaymentFields} from './CardPaymentFields'
 import {WalletPaymentMethods} from './WalletPaymentMethods'
@@ -422,6 +422,11 @@ export default function App() {
   const [renameId, setRenameId] = useState<string|null>(null)
   const [renameValue, setRenameValue] = useState('')
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const previewPanelRef = useRef<HTMLElement>(null)
+  const chatAreaRef = useRef<HTMLDivElement>(null)
+  const [nativePreviewFullscreen,setNativePreviewFullscreen] = useState(false)
+  const [overlayPreviewFullscreen,setOverlayPreviewFullscreen] = useState(false)
+  const previewFullscreen = nativePreviewFullscreen || overlayPreviewFullscreen
   const studioBottomRef = useRef<HTMLDivElement>(null)
   const studioInputRef = useRef<HTMLTextAreaElement>(null)
   const editorInputRef = useRef<HTMLTextAreaElement>(null)
@@ -516,6 +521,23 @@ export default function App() {
     frame.src = '/preview-runtime'
     return () => window.removeEventListener('message', receiveReady)
   }, [code, previewPage, tab])
+
+  useEffect(() => {
+    const syncFullscreen = () => setNativePreviewFullscreen(document.fullscreenElement === previewPanelRef.current)
+    const closeOverlayOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOverlayPreviewFullscreen(false)
+    }
+    document.addEventListener('fullscreenchange', syncFullscreen)
+    document.addEventListener('keydown', closeOverlayOnEscape)
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreen)
+      document.removeEventListener('keydown', closeOverlayOnEscape)
+    }
+  }, [])
+  useEffect(() => {
+    const element = chatAreaRef.current
+    if (element) element.scrollTop = element.scrollHeight
+  }, [messages, busy])
 
   useEffect(() => {
     // Restore the signed-in user separately from optional project loading.
@@ -1113,6 +1135,25 @@ export default function App() {
     const blob = new Blob([content], {type:'text/plain;charset=utf-8'}); const url = URL.createObjectURL(blob)
     const a = document.createElement('a'); a.href=url; a.download=name; a.click(); URL.revokeObjectURL(url)
   }
+  async function togglePreviewFullscreen() {
+    const panel = previewPanelRef.current
+    if (!panel) return
+    if (overlayPreviewFullscreen) {
+      setOverlayPreviewFullscreen(false)
+      return
+    }
+    if (document.fullscreenElement === panel) {
+      try { await document.exitFullscreen() } catch { setNativePreviewFullscreen(false) }
+      return
+    }
+    try {
+      if (!panel.requestFullscreen) throw new Error('Fullscreen API unavailable')
+      await panel.requestFullscreen()
+    } catch {
+      // Browsers that disallow the native API get a full-viewport overlay.
+      setOverlayPreviewFullscreen(true)
+    }
+  }
   function openPreview() {
     if (!code) return
     const url = URL.createObjectURL(new Blob([buildDocument(code, previewPage)], {type:'text/html'}))
@@ -1272,7 +1313,7 @@ export default function App() {
         <aside className="assistant-panel">
           <div className="assistant-title"><div className="assistant-icon"><Sparkles size={16}/></div><div><strong>{t("VELQOZA assistant")}</strong><small>{t("AI DESIGN PARTNER")}</small></div><span className="online-dot"/></div>
           <div className="assistant-context"><span className="context-label">{t("CURRENT PROJECT")}</span><strong>{code.title}</strong><p>{code.description || 'Your website is ready to refine.'}</p></div>
-          <div className="chat-area">
+          <div className="chat-area" ref={chatAreaRef} role="log" aria-label="Website edit conversation">
             {messages.length===0 ? <div className="chat-empty"><div className="chat-spark"><WandSparkles size={22}/></div><strong>{t("What should we improve?")}</strong><p>{t("Ask for a change and I'll update your existing website code.")}</p><div className="suggestions">{['Make the design more premium','Add a pricing section','Improve mobile responsiveness','Use a darker color palette'].map(s=><button key={s} onClick={()=>setChat(t(s))}>{t(s)}<ArrowUpRight size={12}/></button>)}</div></div> : messages.map((m,i)=><div key={i} className={`chat-message ${m.role}`}><span>{m.role==='user'?'YOU':'VELQOZA AI'}</span><p>{m.text}</p></div>)}
             {busy && <div className="typing"><span/><span/><span/> {t("Updating your website...")}</div>}
           </div>
@@ -1283,14 +1324,14 @@ export default function App() {
             onDragLeave={e=>{e.preventDefault();chatDragDepth.current=Math.max(0,chatDragDepth.current-1);if(chatDragDepth.current===0)setChatDragActive(false)}}
             onDrop={e=>{e.preventDefault();e.stopPropagation();chatDragDepth.current=0;setChatDragActive(false);if(mediaBusy)return;const file=e.dataTransfer.files?.[0];if(file)void uploadMediaFile(file,'edit')}}>
             {chatDragActive && <div aria-hidden="true" style={{position:'absolute',inset:0,zIndex:3,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:12,background:'rgba(18,12,35,.93)',color:'#f7f3ff',fontWeight:700,pointerEvents:'none'}}>{t("Drop image, audio or video here")}</div>}
-            <textarea ref={editorInputRef} value={chat} onChange={e=>setChat(e.target.value)} placeholder={t("Tell me what you'd like to change, or drop media here...")} rows={3} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();if(!busy&&!mediaBusy)editSite()}}}/>
+            <textarea ref={editorInputRef} value={chat} onChange={e=>setChat(e.target.value)} aria-label="Website edit instruction" placeholder={t("Tell me what you'd like to change, or drop media here...")} rows={3} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();if(!busy&&!mediaBusy)editSite()}}}/>
             <div><span>{mediaBusy?t('Uploading attachment…'):t('↵ Enter to send · drag media here')}</span><label title="Attach image, audio or video" style={{display:'inline-flex',alignItems:'center',cursor:mediaBusy?'wait':'pointer',padding:'6px 9px',borderRadius:8}}><Plus size={16}/><input type="file" hidden disabled={mediaBusy} accept="image/png,image/jpeg,image/webp,image/gif,audio/mpeg,audio/wav,audio/ogg,video/mp4,video/webm" onChange={e=>{void uploadMediaFile(e.target.files?.[0],'edit');e.target.value=''}}/></label><button onClick={editSite} disabled={busy||mediaBusy||!chat.trim()}><Send size={15}/></button></div>
             {mediaError && <p role="alert" style={{fontSize:12,color:'#f4a7a7',padding:'0 9px 8px'}}>{mediaError}</p>}
           </div>
           <div className="assistant-foot" style={{display:'flex',gap:8,flexWrap:'wrap'}}><ShieldCheck size={13}/> Your changes are generated securely through the server. <UsageItem compact item={usageInfo?.usage.edit} label="Edits available" now={usageNow}/></div>
         </aside>
-        <section className="preview-panel">
-          <div className="preview-toolbar"><div className="preview-status"><span className="live-dot"/> LIVE PREVIEW <span className="preview-divider"/> <span>{code.title}</span></div><div className="device-switch">{([['desktop',Monitor],['tablet',Tablet],['mobile',Smartphone]] as const).map(([m,Icon])=><button key={m} className={mode===m?'selected':''} onClick={()=>setMode(m)} title={`${m} preview`}><Icon size={16}/></button>)}</div><button className="icon-btn" title="Open in new tab" onClick={openPreview}><ArrowUpRight size={17}/></button></div>
+        <section ref={previewPanelRef} className={`preview-panel${overlayPreviewFullscreen?' preview-overlay-fullscreen':''}`}>
+          <div className="preview-toolbar"><div className="preview-status"><span className="live-dot"/> LIVE PREVIEW <span className="preview-divider"/> <span>{code.title}</span></div><div className="device-switch">{([['desktop',Monitor],['tablet',Tablet],['mobile',Smartphone]] as const).map(([m,Icon])=><button key={m} className={mode===m?'selected':''} onClick={()=>setMode(m)} title={`${m} preview`}><Icon size={16}/></button>)}</div><button className="preview-fullscreen-toggle" type="button" title={previewFullscreen?'Exit full screen':'View website in full screen'} aria-label={previewFullscreen?'Exit full screen preview':'View website in full screen'} aria-pressed={previewFullscreen} onClick={()=>void togglePreviewFullscreen()}>{previewFullscreen?<Minimize size={16}/>:<Maximize size={16}/>}<span>{previewFullscreen?'Exit full screen':'Full screen'}</span></button><button className="icon-btn" title="Open in new tab" onClick={openPreview}><ArrowUpRight size={17}/></button></div>
           <div className="page-picker" aria-label="Website pages"><span>Pages</span>{Object.keys(getPages(code)).map(name => <button key={name} className={previewPage === name ? 'active' : ''} onClick={() => setPreviewPage(name)}>{name}</button>)}</div>
           {Object.keys(code.files || {}).length > 0 && <div className="project-file-list"><strong>Project source ({Object.keys(code.files || {}).length} extra files)</strong><span>Backend &amp; tests are included in ZIP but not executed in this frontend preview.</span><div className="project-file-items">{Object.entries(code.files || {}).map(([name, content]) => <button key={name} onClick={()=>downloadOne(name.split('/').pop() || name, content)} title={`Download ${name}`}>{name} ↓</button>)}</div></div>}
           {historyOpen && <div style={{padding:14,borderBottom:'1px solid rgba(255,255,255,.12)'}}><strong>Version history (current session)</strong><p style={{fontSize:12,opacity:.75}}>Previous edits are kept in this session only. They are not yet permanent version history.</p><div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}>{undoStack.slice().reverse().map((version,index)=><button className="outline-btn" key={index} onClick={()=>{if(!window.confirm('Restore this earlier snapshot? Current unsaved code will be replaced.'))return;setCode(version);setUndoStack(stack=>stack.slice(0,stack.length-index-1));setHistoryOpen(false);flash('Snapshot restored. Save to keep changes.')}}>Version {undoStack.length-index}</button>)}</div></div>}
