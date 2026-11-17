@@ -911,10 +911,24 @@ export default function App() {
       const jsNames=Object.keys(contents).filter(n=>/\.js$/i.test(n))
       const primaryCss=cssNames.find(n=>n==='styles.css')||cssNames.find(n=>n==='style.css')||cssNames[0]
       const primaryJs=jsNames.find(n=>n==='script.js')||jsNames.find(n=>n==='main.js')||jsNames[0]
-      // Keep the original HTML structure. The builder injects these shared sources.
-      const stripExistingTags=(html:string)=>html
-        .replace(/<link\b[^>]*rel=["']stylesheet["'][^>]*>/gi,tag => /href=["'](?:\.\/)?[^:"']+\.css["']/i.test(tag)?'':tag)
-        .replace(/<script\b[^>]*src=["'](?:\.\/)?[^:"']+\.js["'][^>]*><\/script>/gi,'')
+      // Keep extra CSS/JS references intact. The preview/publish renderers
+      // load referenced files from imported.files. Only the shared primary
+      // styles/script should be removed to avoid loading them twice.
+      const stripExistingTags=(html:string)=>{
+        const localAttribute=(tag:string,attr:string)=>{
+          const rx=new RegExp(String.raw`(?:^|\s)${attr}\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`,'i')
+          const found=tag.match(rx)
+          if(!found)return ''
+          return (found[1]??found[2]??found[3]).split(/[?#]/,1)[0].replace(/^(?:\.\/)+/,'').toLowerCase()
+        }
+        return html
+          .replace(/<link\b[^>]*>/gi,tag=>{
+            if(!/\bstylesheet\b/i.test(localAttribute(tag,'rel')))return tag
+            return localAttribute(tag,'href')===(primaryCss||'').toLowerCase()?'':tag
+          })
+          .replace(/<script\b[^>]*\bsrc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*>\s*<\/script\s*>/gi,tag=>
+            localAttribute(tag,'src')===(primaryJs||'').toLowerCase()?'':tag)
+      }
       const pages:Record<string,string>={}
       for (const [name,value] of Object.entries(contents)) if (/\.html$/i.test(name) && Object.keys(pages).length<12) pages[name.toLowerCase()]=stripExistingTags(value)
       if (!pages['index.html']) throw new Error('Missing index.html in supported website root.')
