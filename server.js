@@ -256,7 +256,8 @@ app.get("/api/health", (_req, res) => {
     provider: provider(),
     configured:
       provider() === "ollama" ||
-      Boolean(process.env.AI_API_KEY),
+      Boolean(process.env.AI_API_KEY) ||
+      modelChoices(provider()).some(m => isOpenAIModel(m.id) && m.available),
     model: getCurrentModel()
   });
 });
