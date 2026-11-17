@@ -14,7 +14,7 @@ type PreviewSite = {
 }
 
 function attribute(tag: string, name: string): string | null {
-  const rx = new RegExp(`(?:^|\s)${name}\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`, 'i')
+  const rx = new RegExp(String.raw`(?:^|\s)${name}\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`, 'i')
   const match = tag.match(rx)
   return match ? (match[1] ?? match[2] ?? match[3]) : null
 }
