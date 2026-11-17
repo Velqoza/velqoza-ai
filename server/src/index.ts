@@ -18,6 +18,7 @@ import { generateWebsite, editWebsite, chatWithStudio } from './ai.js'
 import { studioPluginCatalog, runStudioPlugins } from './studioPlugins.js'
 import type { AuthRequest, SiteCode } from './types.js'
 import { validateExtraFiles } from './projectFiles.js'
+import { buildPublishedDocument, publishedAsset } from './publishedAssets.js'
 import { COSTS, PACKAGES, CUSTOM_LIMITS, CUSTOM_UNIT_PRICES_CENTS, calculateCustomPrice, getCredits, getCreditHistory, chargeAI, refundAI, purchasedQuota, redeemVoucher } from './credits.js'
 import { paypalReady, paypalMode, cardFieldsSandboxEnabled, paypalBrowserClientToken, createCheckout, resumeCheckout, resumeCardCheckout, captureCheckout, retrieveCompletedCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, validatedGrants, verifyPayPalWebhook, recordVerifiedPaymentEvent, completedWebhookReference, diagnoseLivePayPal, type PayPalWebhookEvent } from './payments.js'
 
@@ -1050,25 +1051,17 @@ const servePublishedBySlug=(req:express.Request,res:express.Response,slug:string
   if(filename==='script.js'||filename==='main.js'){
     res.type('application/javascript').send(code.js);return
   }
-  const pages=code.pages && Object.keys(code.pages).length ? code.pages : {'index.html':code.html}
-  if (!Object.prototype.hasOwnProperty.call(pages,filename)) return res.status(404).send('Page not found.')
-  const html=pages[filename]
-  const css='<link rel="stylesheet" href="styles.css">'
-  const js='<script src="script.js"></script>'
-  const hasFullDocument=/<!doctype\s+html|<html[\s>]/i.test(html)
-  const isHebrew=/[\u0590-\u05FF]/.test(html) || /[\u0590-\u05FF]/.test(code.title)
-  const isArabic=/[\u0600-\u06FF]/.test(html) || /[\u0600-\u06FF]/.test(code.title)
-  const pageLang=isHebrew?'he':isArabic?'ar':'en'
-  const pageDir=(isHebrew||isArabic)?'rtl':'ltr'
-  let document=hasFullDocument ? html : `<!doctype html><html lang="${pageLang}" dir="${pageDir}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${code.title.replace(/[<>&]/g,'')}</title></head><body>${html}</body></html>`
-  // Respect explicit lang/dir attributes on full documents; infer otherwise.
-  if(hasFullDocument && !/<html[^>]*\blang=/i.test(document))
-    document=document.replace(/<html([\s>])/i,`<html lang="${pageLang}"$1`)
-  if(hasFullDocument && !/<html[^>]*\bdir=/i.test(document))
-    document=document.replace(/<html([\s>])/i,`<html dir="${pageDir}"$1`)
-  document=/<\/head>/i.test(document)?document.replace(/<\/head>/i,css+'</head>'):css+document
-  document=/<\/body>/i.test(document)?document.replace(/<\/body>/i,js+'</body>'):document+js
-  res.setHeader('Content-Security-Policy',csp)
+  // Serve only explicitly linked frontend assets from the saved publication.
+  // Do not expose backend source, configuration or unused JS files.
+  const extra = publishedAsset(code, filename)
+  if (extra) {
+    res.type(extra.mime).send(extra.content)
+    return
+  }
+  const pages = code.pages && Object.keys(code.pages).length ? code.pages : {'index.html':code.html}
+  if (!Object.prototype.hasOwnProperty.call(pages, filename)) return res.status(404).send('Page not found.')
+  const document = buildPublishedDocument(code, filename)
+  res.setHeader('Content-Security-Policy', csp)
   res.type('html').send(document)
 }
 app.get('/published/:slug/:filename',(req,res)=>servePublishedBySlug(req,res,req.params.slug,req.params.filename))
