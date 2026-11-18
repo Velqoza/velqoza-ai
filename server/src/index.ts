@@ -22,7 +22,7 @@ import { validateExtraFiles } from './projectFiles.js'
 import { buildPublishedDocument, publishedAsset } from './publishedAssets.js'
 import { PREVIEW_RUNTIME_HTML, PREVIEW_RUNTIME_CSP } from './previewRuntime.js'
 import { COSTS, PACKAGES, CUSTOM_LIMITS, CUSTOM_UNIT_PRICES_CENTS, calculateCustomPrice, getCredits, getCreditHistory, chargeAI, refundAI, purchasedQuota, redeemVoucher } from './credits.js'
-import { paypalReady, paypalMode, cardFieldsSandboxEnabled, paypalBrowserClientToken, createCheckout, resumeCheckout, resumeCardCheckout, captureCheckout, retrieveCompletedCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, validatedGrants, verifyPayPalWebhook, recordVerifiedPaymentEvent, completedWebhookReference, diagnoseLivePayPal, type PayPalWebhookEvent } from './payments.js'
+import { paypalReady, paypalMode, checkoutEnabledForUser, cardFieldsSandboxEnabled, paypalBrowserClientToken, createCheckout, resumeCheckout, resumeCardCheckout, captureCheckout, retrieveCompletedCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, validatedGrants, verifyPayPalWebhook, recordVerifiedPaymentEvent, completedWebhookReference, diagnoseLivePayPal, type PayPalWebhookEvent } from './payments.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -241,7 +241,7 @@ const packageRequestBody=z.union([packageSelection,customSelection])
 const checkoutRequestBody=z.object({requestId:z.string().uuid(),method:z.enum(['paypal','card','applepay']).optional()}).strict()
 const paypalReturnBody=z.object({orderId:z.string().regex(/^[A-Za-z0-9]{8,32}$/)}).strict()
 
-app.get('/api/packages',requireAuth,(_req,res)=>res.json({packages:PACKAGES,customLimits:CUSTOM_LIMITS,unitPricesCents:CUSTOM_UNIT_PRICES_CENTS,checkoutEnabled:paypalReady(),paymentMode:paypalMode(),quotasActive:false,currency:'USD'}))
+app.get('/api/packages',requireAuth,(req:AuthRequest,res)=>res.json({packages:PACKAGES,customLimits:CUSTOM_LIMITS,unitPricesCents:CUSTOM_UNIT_PRICES_CENTS,checkoutEnabled:checkoutEnabledForUser(isAdmin(req.userId!)),paymentMode:paypalMode(),quotasActive:false,currency:'USD'}))
 app.get('/api/packages/requests',requireAuth,(req:AuthRequest,res)=>{
   const rows=db.prepare('SELECT id,selection_json,status,created_at FROM package_requests WHERE user_id=? ORDER BY created_at DESC LIMIT 25').all(req.userId) as {id:string;selection_json:string;status:string;created_at:string}[]
   res.json({requests:rows.map(r=>({id:r.id,selection:JSON.parse(r.selection_json),status:r.status,createdAt:r.created_at}))})
@@ -269,7 +269,7 @@ app.get('/api/packages/requests/:id/checkout-summary',requireAuth,(req:AuthReque
       selection,
       currency:'USD',amountCents:quotedCents,priceChanged:grants.amountCents!==quotedCents,
       credits:grants.credits,messages:grants.messages,edits:grants.edits,generations:grants.generations,
-      checkoutEnabled:paypalReady(),paymentMode:paypalMode()
+      checkoutEnabled:checkoutEnabledForUser(isAdmin(req.userId!)),paymentMode:paypalMode()
     }})
   }catch{return res.status(409).json({error:'This quote cannot be displayed. Create a new request.'})}
 })
@@ -316,6 +316,7 @@ app.get('/api/packages/card-fields-token',requireAuth,rateLimit({windowMs:60_000
 // creation; no self-reported price, status or redirect token grants benefits.
 app.post('/api/packages/checkout',requireAuth,rateLimit({windowMs:60*60_000,limit:8,standardHeaders:'draft-7',legacyHeaders:false}),async(req:AuthRequest,res)=>{
   if(!paypalReady())return res.status(503).json({error:'PayPal checkout is not enabled for this environment.'})
+  if(!checkoutEnabledForUser(isAdmin(req.userId!)))return res.status(503).json({error:'Live payments are undergoing owner-only verification. No charge was initiated.'})
   const parsed=checkoutRequestBody.safeParse(req.body)
   if(!parsed.success)return res.status(400).json({error:'Invalid package request.'})
   const method=parsed.data.method||'paypal'
@@ -654,11 +655,12 @@ app.get('/api/admin/payments/readiness',requireAuth,requireAdmin,(_req,res)=>{
     {label:'PayPal Live selected',ok:process.env.PAYPAL_ENV==='live'},
     {label:'PayPal merchant credentials present',ok:Boolean(process.env.PAYPAL_CLIENT_ID?.trim()&&process.env.PAYPAL_CLIENT_SECRET?.trim())},
     {label:'Separate PayPal webhook ID present',ok:Boolean(process.env.PAYPAL_WEBHOOK_ID?.trim())},
-    {label:'Merchant/operator approval flags',ok:process.env.ENABLE_LIVE_PAYMENTS==='true'&&process.env.LIVE_PAYMENTS_APPROVED==='true'}
+    {label:'Merchant/operator approval flags',ok:process.env.ENABLE_LIVE_PAYMENTS==='true'&&process.env.LIVE_PAYMENTS_APPROVED==='true'},
+    {label:'Public customer checkout (after owner Live test)',ok:process.env.LIVE_PAYMENTS_PUBLIC==='true'}
   ]
   // This report only describes configuration; data migration, backups,
   // webhook delivery and authorized merchant approval still require review.
-  res.json({checks,configured:checks.every(x=>x.ok),checkoutEnabled:paypalReady(),mode:paypalMode(),note:'Configuration checks only. Data migration, persistence, endpoint reachability and real checkout have not been verified.'})
+  res.json({checks,configured:checks.every(x=>x.ok),checkoutEnabled:checkoutEnabledForUser(true),publicCheckoutEnabled:checkoutEnabledForUser(false),mode:paypalMode(),note:'Configuration checks only. Public checkout must remain off until the authorized merchant completes an end-to-end Live payment, entitlement and webhook review.'})
 })
 // Separate admin-only read-only verification; it never opens checkout or grants Credits.
 app.post('/api/admin/payments/diagnostics',requireAuth,requireAdmin,rateLimit({windowMs:60_000,limit:3,standardHeaders:'draft-7',legacyHeaders:false}),async(_req,res)=>{
