@@ -148,9 +148,9 @@ function CheckoutPage({user}:{user:User|null}){
                 {showCardFields?'Hide Credit / Debit Card Form':'Pay with Credit / Debit Card'}
               </button>
               {showCardFields&&(
-                data.paymentMode==='sandbox'
-                  ?<CardPaymentFields requestId={data.id} amountCents={data.amountCents} onOldOrder={()=>setOldSandboxOrder(true)} onSuccess={orderId=>window.location.replace('/purchase-success?order='+encodeURIComponent(orderId))}/>
-                  :<p role="status" style={{fontSize:13,color:'#ffceb0'}}>Direct credit/debit card payments are not active in Live checkout yet. This form is being tested in Sandbox.</p>
+                data.cardFieldsEnabled && (data.paymentMode==='sandbox'||data.paymentMode==='live')
+                  ?<CardPaymentFields requestId={data.id} amountCents={data.amountCents} paymentMode={data.paymentMode} onOldOrder={()=>setOldSandboxOrder(true)} onSuccess={orderId=>window.location.replace('/purchase-success?order='+encodeURIComponent(orderId))}/>
+                  :<p role="status" style={{fontSize:13,color:'#ffceb0'}}>Direct card payments are currently unavailable for this account. You can still pay securely with PayPal. Live Card Fields are enabled only after merchant eligibility and payment verification.</p>
               )}
               {data.paymentMode==='sandbox'&&<WalletPaymentMethods requestId={data.id} amountCents={data.amountCents} onSuccess={orderId=>window.location.replace('/purchase-success?order='+encodeURIComponent(orderId))}/>}
               {oldSandboxOrder&&data.paymentMode==='sandbox'&&<div role="alert" style={{border:'1px solid #f0a9b3',borderRadius:10,padding:14,background:'#2d1a28',display:'grid',gap:10}}>
