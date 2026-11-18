@@ -97,6 +97,14 @@ export async function paypalBrowserClientToken():Promise<string>{
 }
 
 export function paypalReady(){return paypalMode()!==null}
+// A Live release starts with an owner-only end-to-end test. The public checkout
+// stays disabled until an explicit second gate is opened after a real capture,
+// credit reconciliation and webhook-delivery review.
+export function checkoutEnabledForUser(isOwner:boolean):boolean{
+  const mode=paypalMode()
+  if(mode==='sandbox')return true
+  return mode==='live'&&(isOwner||process.env.LIVE_PAYMENTS_PUBLIC==='true')
+}
 const paypalBase=()=>paypalMode()==='live'?'https://api-m.paypal.com':'https://api-m.sandbox.paypal.com'
 type PayPalOrder={id?:string;status?:string;links?:{href:string;rel:string}[];purchase_units?:{reference_id?:string;custom_id?:string;amount?:{currency_code?:string;value?:string};payments?:{captures?:{id?:string;status?:string;amount?:{currency_code?:string;value?:string}}[]}}[]}
 async function accessToken():Promise<string>{
