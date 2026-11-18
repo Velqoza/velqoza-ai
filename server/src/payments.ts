@@ -81,16 +81,27 @@ export async function diagnoseLivePayPal():Promise<LiveDiagnosticResult>{
 // Only sandbox card testing is enabled until merchant eligibility and 3DS
 // outcomes have been verified and explicitly authorized for production.
 export const cardFieldsSandboxEnabled=()=>paypalMode()==='sandbox'&&process.env.RENDER_SERVICE_ID==='srv-dbs3comi0phs73c0s1dg'
+// Live cards are a separate, opt-in feature from PayPal redirects.
+// First restrict them to the owner; allow the public only after merchant
+// eligibility, 3DS and end-to-end credit reconciliation have been verified.
+export function cardFieldsEnabledForUser(isOwner:boolean):boolean{
+  if(cardFieldsSandboxEnabled())return true
+  return paypalMode()==='live'&&process.env.LIVE_CARD_FIELDS_PILOT==='true'&&
+    (isOwner||process.env.LIVE_CARD_FIELDS_PUBLIC==='true')
+}
 export async function paypalBrowserClientToken():Promise<string>{
-  if(!cardFieldsSandboxEnabled())throw new Error('Card Fields testing is not available in this environment.')
+  const mode=paypalMode()
+  if(!mode||(mode==='live'&&process.env.LIVE_CARD_FIELDS_PILOT!=='true'))
+    throw new Error('PayPal Card Fields are not enabled.')
   const client=process.env.PAYPAL_CLIENT_ID!,secret=process.env.PAYPAL_CLIENT_SECRET!
-  const r=await fetch('https://api-m.sandbox.paypal.com/v1/oauth2/token',{
+  const base=mode==='live'?'https://api-m.paypal.com':'https://api-m.sandbox.paypal.com'
+  const r=await fetch(base+'/v1/oauth2/token',{
     method:'POST',
     headers:{Authorization:'Basic '+Buffer.from(client+':'+secret).toString('base64'),'Content-Type':'application/x-www-form-urlencoded'},
     body:'grant_type=client_credentials&response_type=client_token&intent=sdk_init',
     signal:AbortSignal.timeout(15000)
   })
-  if(!r.ok)throw new Error('PayPal cannot initialize Sandbox Card Fields.')
+  if(!r.ok)throw new Error('PayPal cannot initialize Card Fields.')
   const result=await r.json() as {access_token?:string}
   if(!result.access_token)throw new Error('PayPal did not return a Card Fields token.')
   return result.access_token
@@ -255,7 +266,8 @@ export async function createCheckout(paymentId:string,cents:number,description:s
   return {orderId:result.id,approvalUrl:method==='paypal'?validatedApprovalUrl(result):null}
 }
 export async function resumeCardCheckout(orderId:string,paymentId:string,expectedCents:number){
-  if(!cardFieldsSandboxEnabled())throw new Error('Sandbox Card Fields are not available.')
+  if(!cardFieldsSandboxEnabled()&&!(paypalMode()==='live'&&process.env.LIVE_CARD_FIELDS_PILOT==='true'))
+    throw new Error('Card Fields are not enabled.')
   const order=await retrieveCompletedCheckout(orderId)
   if(order.id!==orderId||!['CREATED','PAYER_ACTION_REQUIRED','SAVED'].includes(order.status||''))throw new Error('This payment cannot be resumed.')
   const units=order.purchase_units||[]
