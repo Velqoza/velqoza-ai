@@ -21,6 +21,7 @@ import type { AuthRequest, SiteCode } from './types.js'
 import { validateExtraFiles } from './projectFiles.js'
 import { buildPublishedDocument, publishedAsset } from './publishedAssets.js'
 import { PREVIEW_RUNTIME_HTML, PREVIEW_RUNTIME_CSP } from './previewRuntime.js'
+import { CHECKOUT_PAYMENT_CSP } from './checkoutCsp.js'
 import { COSTS, PACKAGES, CUSTOM_LIMITS, CUSTOM_UNIT_PRICES_CENTS, calculateCustomPrice, getCredits, getCreditHistory, chargeAI, refundAI, purchasedQuota, redeemVoucher } from './credits.js'
 import { paypalReady, paypalMode, checkoutEnabledForUser, cardFieldsSandboxEnabled, cardFieldsEnabledForUser, paypalBrowserClientToken, createCheckout, resumeCheckout, resumeCardCheckout, captureCheckout, retrieveCompletedCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, validatedGrants, verifyPayPalWebhook, recordVerifiedPaymentEvent, completedWebhookReference, diagnoseLivePayPal, type PayPalWebhookEvent } from './payments.js'
 
@@ -40,10 +41,10 @@ app.use(cors({ origin(origin, callback) {
   if (!origin || allowedOrigins.includes(origin)) return callback(null, true)
   return callback(new Error('CORS origin denied'))
 }, credentials: false }))
-app.use('/checkout',(req,res,next)=>{
-  if(process.env.RENDER_SERVICE_ID==='srv-dbs3comi0phs73c0s1dg'){
-    res.setHeader('Content-Security-Policy',"default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; script-src 'self' https://www.sandbox.paypal.com https://www.paypal.com https://pay.google.com https://applepay.cdn-apple.com; frame-src 'self' https://*.paypal.com https://pay.google.com https://*.google.com; connect-src 'self' https://*.paypal.com https://*.paypalobjects.com https://pay.google.com https://*.google.com https://*.googleapis.com https://google.com; img-src 'self' data: https://*.paypal.com https://*.paypalobjects.com https://*.google.com https://www.gstatic.com https://pay.google.com; style-src 'self' 'unsafe-inline' https://*.paypal.com https://pay.google.com https://fonts.googleapis.com; font-src 'self' data: https://*.paypalobjects.com https://fonts.gstatic.com")
-  }
+// The PayPal v6 SDK is permitted only on the checkout screen. Helmet's
+// default CSP remains in place on all account, admin and API routes.
+app.use('/checkout',(_req,res,next)=>{
+  res.setHeader('Content-Security-Policy',CHECKOUT_PAYMENT_CSP)
   next()
 })
 app.use((req,res,next) => {
