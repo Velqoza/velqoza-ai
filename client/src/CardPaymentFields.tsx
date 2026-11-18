@@ -5,13 +5,14 @@ type CardSession={
   submit:(orderId:string,options?:Record<string,unknown>)=>Promise<{state:'succeeded'|'canceled'|'failed'|string;data?:{orderId?:string;message?:string;liabilityShift?:string}}>
 }
 type SdkInstance={
-  findEligibleMethods:()=>Promise<{isEligible:(name:string)=>boolean}>
+  findEligibleMethods:(options?:{currencyCode:string})=>Promise<{isEligible:(name:string)=>boolean}>
   createCardFieldsOneTimePaymentSession:()=>CardSession
 }
 type PayPalWindow=Window & {paypal?:{createInstance:(options:{clientToken:string;components:string[];pageType?:string})=>Promise<SdkInstance>}}
 let paypalSdkLoader:Promise<void>|null=null
-function loadSandboxSdk(src:string){
-  if(src!=='https://www.sandbox.paypal.com/web-sdk/v6/core')throw new Error('Unexpected PayPal SDK source.')
+function loadPayPalSdk(src:string){
+  if(!['https://www.sandbox.paypal.com/web-sdk/v6/core','https://www.paypal.com/web-sdk/v6/core'].includes(src))
+    throw new Error('Unexpected PayPal SDK source.')
   if((window as PayPalWindow).paypal?.createInstance)return Promise.resolve()
   if(!paypalSdkLoader){
     paypalSdkLoader=new Promise<void>((resolve,reject)=>{
@@ -25,7 +26,7 @@ function loadSandboxSdk(src:string){
   }
   return paypalSdkLoader
 }
-export function CardPaymentFields({requestId,amountCents,onSuccess,onOldOrder}:{requestId:string;amountCents:number;onSuccess:(orderId:string)=>void;onOldOrder:()=>void}){
+export function CardPaymentFields({requestId,amountCents,paymentMode,onSuccess,onOldOrder}:{requestId:string;amountCents:number;paymentMode:'live'|'sandbox';onSuccess:(orderId:string)=>void;onOldOrder:()=>void}){
   const numberRef=useRef<HTMLDivElement>(null),expiryRef=useRef<HTMLDivElement>(null),cvvRef=useRef<HTMLDivElement>(null)
   const sessionRef=useRef<CardSession|null>(null)
   const [state,setState]=useState<'loading'|'ready'|'unavailable'>('loading')
@@ -36,13 +37,14 @@ export function CardPaymentFields({requestId,amountCents,onSuccess,onOldOrder}:{
     const init=async()=>{
       try{
         const config=await api.cardFieldsToken()
-        await loadSandboxSdk(config.sdkUrl)
+        if(config.paymentMode!==paymentMode)throw new Error('Payment environment changed. Reload checkout.')
+        await loadPayPalSdk(config.sdkUrl)
         if(!alive)return
         const sdk=await (window as PayPalWindow).paypal!.createInstance({
           clientToken:config.clientToken,components:['card-fields'],pageType:'checkout'
         })
-        const methods=await sdk.findEligibleMethods()
-        if(!methods.isEligible('advanced_cards'))throw new Error('This PayPal Sandbox merchant is not eligible for Advanced Credit / Debit Card payments. Enable Advanced Card Payments in PayPal Developer, or use PayPal.')
+        const methods=await sdk.findEligibleMethods({currencyCode:'USD'})
+        if(!methods.isEligible('advanced_cards'))throw new Error('Direct card payments are not enabled for this merchant account. Use PayPal checkout or contact PayPal about Advanced Card Payments eligibility.')
         const session=sdk.createCardFieldsOneTimePaymentSession()
         if(!alive)return
         for(const [ref,type,placeholder] of [[numberRef,'number','Card number'],[expiryRef,'expiry','MM/YY'],[cvvRef,'cvv','CVV']] as const){
@@ -57,7 +59,7 @@ export function CardPaymentFields({requestId,amountCents,onSuccess,onOldOrder}:{
     }
     void init()
     return ()=>{alive=false;sessionRef.current=null}
-  },[requestId])
+  },[requestId,paymentMode])
   const submit=async()=>{
     if(busy||!sessionRef.current)return
     setBusy(true);setError('')
@@ -94,6 +96,6 @@ export function CardPaymentFields({requestId,amountCents,onSuccess,onOldOrder}:{
     <button type="button" disabled={state!=='ready'||busy} onClick={()=>void submit()} style={{marginTop:17,width:'100%',padding:'15px 18px',background:state==='ready'?'#c9a9ff':'#4b4260',color:'#180f28',borderRadius:10,border:0,fontWeight:800,cursor:state==='ready'?'pointer':'not-allowed'}}>
       {busy?'Confirming secure payment…':`Pay USD ${(amountCents/100).toFixed(2)}`}
     </button>
-    <p style={{fontSize:11,color:'#b29fc9'}}>Sandbox test only — no real money is charged. Do not enter real card details.</p>
+    <p style={{fontSize:11,color:paymentMode==='live'?'#ffdcad':'#b29fc9'}}>{paymentMode==='live'?'Live payment — your card will be charged the displayed USD total if you confirm.':'Sandbox test only — no real money is charged. Do not enter real card details.'}</p>
   </section>
 }

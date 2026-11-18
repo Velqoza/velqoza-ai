@@ -22,7 +22,7 @@ import { validateExtraFiles } from './projectFiles.js'
 import { buildPublishedDocument, publishedAsset } from './publishedAssets.js'
 import { PREVIEW_RUNTIME_HTML, PREVIEW_RUNTIME_CSP } from './previewRuntime.js'
 import { COSTS, PACKAGES, CUSTOM_LIMITS, CUSTOM_UNIT_PRICES_CENTS, calculateCustomPrice, getCredits, getCreditHistory, chargeAI, refundAI, purchasedQuota, redeemVoucher } from './credits.js'
-import { paypalReady, paypalMode, checkoutEnabledForUser, cardFieldsSandboxEnabled, paypalBrowserClientToken, createCheckout, resumeCheckout, resumeCardCheckout, captureCheckout, retrieveCompletedCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, validatedGrants, verifyPayPalWebhook, recordVerifiedPaymentEvent, completedWebhookReference, diagnoseLivePayPal, type PayPalWebhookEvent } from './payments.js'
+import { paypalReady, paypalMode, checkoutEnabledForUser, cardFieldsSandboxEnabled, cardFieldsEnabledForUser, paypalBrowserClientToken, createCheckout, resumeCheckout, resumeCardCheckout, captureCheckout, retrieveCompletedCheckout, verifiedCapture, fulfillVerifiedPayment, type PaidSelection, priceSelection, serializePaymentSnapshot, validatedGrants, verifyPayPalWebhook, recordVerifiedPaymentEvent, completedWebhookReference, diagnoseLivePayPal, type PayPalWebhookEvent } from './payments.js'
 
 const app = express()
 const port = Number(process.env.PORT || 8787)
@@ -241,7 +241,7 @@ const packageRequestBody=z.union([packageSelection,customSelection])
 const checkoutRequestBody=z.object({requestId:z.string().uuid(),method:z.enum(['paypal','card','applepay']).optional()}).strict()
 const paypalReturnBody=z.object({orderId:z.string().regex(/^[A-Za-z0-9]{8,32}$/)}).strict()
 
-app.get('/api/packages',requireAuth,(req:AuthRequest,res)=>res.json({packages:PACKAGES,customLimits:CUSTOM_LIMITS,unitPricesCents:CUSTOM_UNIT_PRICES_CENTS,checkoutEnabled:checkoutEnabledForUser(isAdmin(req.userId!)),paymentMode:paypalMode(),quotasActive:false,currency:'USD'}))
+app.get('/api/packages',requireAuth,(req:AuthRequest,res)=>res.json({packages:PACKAGES,customLimits:CUSTOM_LIMITS,unitPricesCents:CUSTOM_UNIT_PRICES_CENTS,checkoutEnabled:checkoutEnabledForUser(isAdmin(req.userId!)),cardFieldsEnabled:cardFieldsEnabledForUser(isAdmin(req.userId!)),paymentMode:paypalMode(),quotasActive:false,currency:'USD'}))
 app.get('/api/packages/requests',requireAuth,(req:AuthRequest,res)=>{
   const rows=db.prepare('SELECT id,selection_json,status,created_at FROM package_requests WHERE user_id=? ORDER BY created_at DESC LIMIT 25').all(req.userId) as {id:string;selection_json:string;status:string;created_at:string}[]
   res.json({requests:rows.map(r=>({id:r.id,selection:JSON.parse(r.selection_json),status:r.status,createdAt:r.created_at}))})
@@ -269,7 +269,7 @@ app.get('/api/packages/requests/:id/checkout-summary',requireAuth,(req:AuthReque
       selection,
       currency:'USD',amountCents:quotedCents,priceChanged:grants.amountCents!==quotedCents,
       credits:grants.credits,messages:grants.messages,edits:grants.edits,generations:grants.generations,
-      checkoutEnabled:checkoutEnabledForUser(isAdmin(req.userId!)),paymentMode:paypalMode()
+      checkoutEnabled:checkoutEnabledForUser(isAdmin(req.userId!)),cardFieldsEnabled:cardFieldsEnabledForUser(isAdmin(req.userId!)),paymentMode:paypalMode()
     }})
   }catch{return res.status(409).json({error:'This quote cannot be displayed. Create a new request.'})}
 })
@@ -307,10 +307,20 @@ app.delete('/api/packages/requests/:id',requireAuth,(req:AuthRequest,res)=>{
 })
 
 // Browser-safe token from PayPal; never expose the merchant client secret.
-app.get('/api/packages/card-fields-token',requireAuth,rateLimit({windowMs:60_000,limit:5,standardHeaders:'draft-7',legacyHeaders:false}),async(_req,res)=>{
-  if(!cardFieldsSandboxEnabled())return res.status(503).json({error:'Card Fields testing is only available on Sandbox Staging.'})
-  try{res.setHeader('Cache-Control','no-store');res.json({clientToken:await paypalBrowserClientToken(),clientId:process.env.PAYPAL_CLIENT_ID!,sdkUrl:'https://www.sandbox.paypal.com/web-sdk/v6/core'})}
-  catch(error){console.error('Sandbox Card Fields initialization failed',error);res.status(503).json({error:'PayPal Card Fields is not enabled for this Sandbox merchant or could not initialize.'})}
+app.get('/api/packages/card-fields-token',requireAuth,rateLimit({windowMs:60_000,limit:5,standardHeaders:'draft-7',legacyHeaders:false}),async(req:AuthRequest,res)=>{
+  if(!cardFieldsEnabledForUser(isAdmin(req.userId!)))
+    return res.status(503).json({error:'Direct card payments are not enabled for this account.'})
+  try{
+    const mode=paypalMode()
+    const clientToken=await paypalBrowserClientToken()
+    res.setHeader('Cache-Control','no-store')
+    res.json({clientToken,clientId:process.env.PAYPAL_CLIENT_ID!,
+      sdkUrl:mode==='live'?'https://www.paypal.com/web-sdk/v6/core':'https://www.sandbox.paypal.com/web-sdk/v6/core',
+      paymentMode:mode})
+  }catch(error){
+    console.error('Card Fields initialization failed',error)
+    res.status(503).json({error:'PayPal Card Fields could not initialize. Use PayPal checkout or contact support.'})
+  }
 })
 // PayPal checkout: staging Sandbox or explicitly authorized production Live. Immutable snapshots at order
 // creation; no self-reported price, status or redirect token grants benefits.
@@ -320,7 +330,10 @@ app.post('/api/packages/checkout',requireAuth,rateLimit({windowMs:60*60_000,limi
   const parsed=checkoutRequestBody.safeParse(req.body)
   if(!parsed.success)return res.status(400).json({error:'Invalid package request.'})
   const method=parsed.data.method||'paypal'
-  if(method!=='paypal'&&!cardFieldsSandboxEnabled())return res.status(503).json({error:'Card and wallet payments are only enabled in Sandbox testing.'})
+  if(method==='card'&&!cardFieldsEnabledForUser(isAdmin(req.userId!)))
+    return res.status(503).json({error:'Direct card payments are not enabled for this account.'})
+  if(method==='applepay'&&!cardFieldsSandboxEnabled())
+    return res.status(503).json({error:'Apple Pay is only enabled for Sandbox testing.'})
   const record=db.prepare('SELECT id,user_id,selection_json,status FROM package_requests WHERE id=? AND user_id=?').get(parsed.data.requestId,req.userId) as {id:string;user_id:string;selection_json:string;status:string}|undefined
   if(!record || record.status!=='pending')return res.status(404).json({error:'An unfulfilled package request is required.'})
   const selection=JSON.parse(record.selection_json) as PaidSelection
