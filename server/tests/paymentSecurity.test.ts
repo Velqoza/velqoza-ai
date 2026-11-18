@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { paypalMode, checkoutEnabledForUser, priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture, webhookCaptureId, completedWebhookReference, validatedApprovalUrl, inspectLiveWebhook, resumeCheckout, createCheckout } from '../src/payments.js'
+import { paypalMode, checkoutEnabledForUser, cardFieldsEnabledForUser, paypalBrowserClientToken, priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture, webhookCaptureId, completedWebhookReference, validatedApprovalUrl, inspectLiveWebhook, resumeCheckout, createCheckout } from '../src/payments.js'
 
 test('stored package grants are immutable and amount-bound',()=>{
   const selection={type:'package' as const,packageId:'starter' as const}
@@ -193,5 +193,66 @@ test('Live payments stay owner-only until the separate public release gate is op
       if(originals[key]===undefined)delete process.env[key]
       else process.env[key]=originals[key]
     }
+  }
+})
+
+test('Live Card Fields are fail-closed to the public until independent pilot and release flags',()=>{
+  const keys=['PAYPAL_ENV','PAYPAL_CLIENT_ID','PAYPAL_CLIENT_SECRET','PAYPAL_WEBHOOK_ID','ENABLE_LIVE_PAYMENTS',
+    'LIVE_PAYMENTS_APPROVED','LIVE_CARD_FIELDS_PILOT','LIVE_CARD_FIELDS_PUBLIC','NODE_ENV','STAGING_INIT_SCHEMA',
+    'RENDER_SERVICE_ID'] as const
+  const previous=Object.fromEntries(keys.map(k=>[k,process.env[k]]))
+  try{
+    Object.assign(process.env,{PAYPAL_ENV:'live',PAYPAL_CLIENT_ID:'mock-client',PAYPAL_CLIENT_SECRET:'mock-secret',
+      PAYPAL_WEBHOOK_ID:'TESTWEBHOOK123',ENABLE_LIVE_PAYMENTS:'true',LIVE_PAYMENTS_APPROVED:'true',
+      NODE_ENV:'production',STAGING_INIT_SCHEMA:'false',RENDER_SERVICE_ID:'srv-dbse48gae00c73es27a0'})
+    delete process.env.LIVE_CARD_FIELDS_PILOT
+    delete process.env.LIVE_CARD_FIELDS_PUBLIC
+    assert.equal(cardFieldsEnabledForUser(true),false)
+    assert.equal(cardFieldsEnabledForUser(false),false)
+    process.env.LIVE_CARD_FIELDS_PILOT='true'
+    assert.equal(cardFieldsEnabledForUser(true),true)
+    assert.equal(cardFieldsEnabledForUser(false),false)
+    process.env.LIVE_CARD_FIELDS_PUBLIC='true'
+    assert.equal(cardFieldsEnabledForUser(false),true)
+    process.env.LIVE_CARD_FIELDS_PILOT='false'
+    assert.equal(cardFieldsEnabledForUser(true),false)
+    assert.equal(cardFieldsEnabledForUser(false),false)
+    process.env.LIVE_CARD_FIELDS_PILOT='true'
+    process.env.RENDER_SERVICE_ID='srv-dbs3comi0phs73c0s1dg'
+    assert.equal(cardFieldsEnabledForUser(true),false)
+    assert.equal(cardFieldsEnabledForUser(false),false)
+  }finally{
+    for(const key of keys){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key]}
+  }
+})
+
+test('Card Fields browser-safe token uses Live API only with Live pilot enabled',async()=>{
+  const keys=['PAYPAL_ENV','PAYPAL_CLIENT_ID','PAYPAL_CLIENT_SECRET','PAYPAL_WEBHOOK_ID','ENABLE_LIVE_PAYMENTS',
+    'LIVE_PAYMENTS_APPROVED','LIVE_CARD_FIELDS_PILOT','NODE_ENV','STAGING_INIT_SCHEMA',
+    'RENDER_SERVICE_ID'] as const
+  const previous=Object.fromEntries(keys.map(k=>[k,process.env[k]]))
+  const previousFetch=globalThis.fetch
+  let hits=0
+  try{
+    Object.assign(process.env,{PAYPAL_ENV:'live',PAYPAL_CLIENT_ID:'mock-client',PAYPAL_CLIENT_SECRET:'mock-secret',
+      PAYPAL_WEBHOOK_ID:'TESTWEBHOOK123',ENABLE_LIVE_PAYMENTS:'true',LIVE_PAYMENTS_APPROVED:'true',
+      NODE_ENV:'production',STAGING_INIT_SCHEMA:'false',RENDER_SERVICE_ID:'srv-dbse48gae00c73es27a0'})
+    delete process.env.LIVE_CARD_FIELDS_PILOT
+    globalThis.fetch=async()=>{hits++;throw Error('Should not call provider without pilot flag')}
+    await assert.rejects(paypalBrowserClientToken(),/not enabled/)
+    assert.equal(hits,0)
+    process.env.LIVE_CARD_FIELDS_PILOT='true'
+    globalThis.fetch=async(input,init)=>{
+      hits++
+      assert.equal(String(input),'https://api-m.paypal.com/v1/oauth2/token')
+      assert.equal(init?.method,'POST')
+      assert.equal(String(init?.body),'grant_type=client_credentials&response_type=client_token&intent=sdk_init')
+      return new Response(JSON.stringify({access_token:'browser-safe-live-token'}),{status:200})
+    }
+    assert.equal(await paypalBrowserClientToken(),'browser-safe-live-token')
+    assert.equal(hits,1)
+  }finally{
+    globalThis.fetch=previousFetch
+    for(const key of keys){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key]}
   }
 })
