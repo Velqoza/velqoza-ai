@@ -139,13 +139,7 @@ function CheckoutPage({user}:{user:User|null}){
            <h2 style={{fontSize:18,margin:'0 0 16px'}}>Choose a payment method</h2>
            {data.status!=='pending'?<p role="status">This order is {data.status}. Please return to your account for its receipt or status.</p>:
             data.priceChanged?<p role="alert">Pricing changed since your quote. Please create a new order before paying.</p>:
-            !data.checkoutEnabled?<div role="status" style={{display:'grid',gap:12}}>
-              <p style={{margin:0,padding:12,borderRadius:9,border:'1px solid #816a99',background:'#2b2040',lineHeight:1.6}}>This is an order preview only. Real-money payments have not been enabled on this service, so no payment will be taken and no Credits will be added.</p>
-              <button type="button" disabled style={{width:'100%',padding:'15px 20px',borderRadius:12,background:'#443954',color:'#c6bdd0',border:'1px solid #5b4c70',cursor:'not-allowed'}}>PayPal — unavailable</button>
-              <button type="button" disabled style={{width:'100%',padding:'15px 20px',borderRadius:12,background:'#443954',color:'#c6bdd0',border:'1px solid #5b4c70',cursor:'not-allowed'}}>Credit / Debit Card — unavailable</button>
-              <button type="button" disabled style={{width:'100%',padding:'15px 20px',borderRadius:12,background:'#443954',color:'#c6bdd0',border:'1px solid #5b4c70',cursor:'not-allowed'}}>Apple Pay — unavailable</button>
-              <p style={{fontSize:12,color:'#b7aeca',margin:0}}>The website owner must finish PayPal Live merchant, webhook and production data checks before these payment methods can be activated.</p>
-            </div>:
+            !data.checkoutEnabled?<p role="status">Secure checkout is not available for this environment right now.</p>:
             <div style={{display:'grid',gap:12}}>
               <button type="button" disabled={busy!==null} onClick={()=>void pay()} style={{width:'100%',background:'#f1e8ff',color:'#1b1334',border:0,borderRadius:12,padding:'17px 20px',fontSize:16,fontWeight:800,cursor:busy?'wait':'pointer'}}>
                 {busy==='paypal'?'Opening PayPal…':'Pay with PayPal'}
@@ -333,11 +327,12 @@ export default function App() {
     try {
       const result=await api.requestPackage(selection)
       setPackageRequestHistory(previous=>[{...result.request,selection},...previous])
-      // Always open the order review screen, even when payments are disabled.
-      // The checkout page and backend independently prevent any real charge until
-      // the merchant has explicitly activated and verified Live PayPal checkout.
-      window.location.assign('/checkout?request='+encodeURIComponent(result.request.id))
-      return
+      if(packageCatalog?.checkoutEnabled){
+        window.location.assign('/checkout?request='+encodeURIComponent(result.request.id))
+        return
+      } else {
+        setPackageFeedback('Request saved. PayPal checkout is not configured yet; no payment or quota was applied.')
+      }
     }catch(error){setPackageFeedback(error instanceof Error?error.message:'Could not save request or start checkout.')}
     finally{setPackageRequestBusy(false)}
   }
@@ -1441,7 +1436,7 @@ export default function App() {
     {packageTab==='bundles'?
       <div className="credit-packages">{packageCatalog?.packages.map(p=><div key={p.id} className="credit-package" style={{display:'flex',flexDirection:'column',gap:8}}>
         <strong>{p.label}</strong><span>{p.credits.toLocaleString()} Credits</span><span>{p.messages.toLocaleString()} AI Studio messages</span><span>{p.edits.toLocaleString()} edits</span><span>{p.generations.toLocaleString()} generations</span><b>${(p.usdCents/100).toFixed(0)} <small>illustrative price</small></b>
-        <button className="outline-btn" disabled={packageRequestBusy} onClick={()=>void submitPackageRequest({type:'package',packageId:p.id})}>{packageCatalog?.checkoutEnabled?'Continue to secure checkout':'Review order (payments not active)'}</button>
+        <button className="outline-btn" disabled={packageRequestBusy} onClick={()=>void submitPackageRequest({type:'package',packageId:p.id})}>{packageCatalog?.checkoutEnabled?'PayPal / Credit or Debit Card':'Save quote (no payment)'}</button>
       </div>)}</div>:
       <section style={{border:'1px solid rgba(160,135,220,.25)',borderRadius:14,padding:16,display:'grid',gap:13}}>
         <h3 style={{margin:0}}>Build your own package</h3>
@@ -1465,7 +1460,7 @@ export default function App() {
         </div>
         <small style={{opacity:.75}}>Total updates instantly. This is an estimate; submitting a request does not charge payment.</small>
         <button className="generate-btn" disabled={packageRequestBusy||!packageCatalog||Object.values(packageQuantities).every(v=>v===0)||packageQuantities.credits>0&&packageQuantities.credits<10} onClick={()=>void submitPackageRequest({type:'custom',...packageQuantities})}>
-          {packageRequestBusy?'Processing…':packageCatalog?.checkoutEnabled?'Continue to secure checkout':'Review order (payments not active)'}
+          {packageRequestBusy?'Processing…':packageCatalog?.checkoutEnabled?'PayPal / Credit or Debit Card':'Save custom quote (no payment)'}
         </button>
       </section>}
     {packageFeedback&&<p role="status" style={{padding:10,border:'1px solid rgba(170,145,210,.3)',borderRadius:8}}>{packageFeedback}</p>}
