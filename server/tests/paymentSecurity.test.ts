@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { paypalMode, priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture, webhookCaptureId, completedWebhookReference, validatedApprovalUrl, inspectLiveWebhook, resumeCheckout, createCheckout } from '../src/payments.js'
+import { paypalMode, checkoutEnabledForUser, priceSelection, serializePaymentSnapshot, validatedGrants, verifiedCapture, webhookCaptureId, completedWebhookReference, validatedApprovalUrl, inspectLiveWebhook, resumeCheckout, createCheckout } from '../src/payments.js'
 
 test('stored package grants are immutable and amount-bound',()=>{
   const selection={type:'package' as const,packageId:'starter' as const}
@@ -163,5 +163,35 @@ test('removed Google Pay is rejected before any provider network request, while 
   }finally{
     globalThis.fetch=fetchBefore
     for(const k of keys){if(old[k]===undefined)delete process.env[k];else process.env[k]=old[k]}
+  }
+})
+
+test('Live payments stay owner-only until the separate public release gate is opened',()=>{
+  const keys=['PAYPAL_ENV','PAYPAL_CLIENT_ID','PAYPAL_CLIENT_SECRET','PAYPAL_WEBHOOK_ID',
+    'ENABLE_LIVE_PAYMENTS','LIVE_PAYMENTS_APPROVED','NODE_ENV','STAGING_INIT_SCHEMA',
+    'RENDER_SERVICE_ID','LIVE_PAYMENTS_PUBLIC'] as const
+  const originals=Object.fromEntries(keys.map(key=>[key,process.env[key]]))
+  try{
+    Object.assign(process.env,{PAYPAL_ENV:'live',PAYPAL_CLIENT_ID:'mock-client',PAYPAL_CLIENT_SECRET:'mock-secret',
+      PAYPAL_WEBHOOK_ID:'TESTWEBHOOK123',ENABLE_LIVE_PAYMENTS:'true',LIVE_PAYMENTS_APPROVED:'true',
+      NODE_ENV:'production',STAGING_INIT_SCHEMA:'false',RENDER_SERVICE_ID:'srv-dbse48gae00c73es27a0'})
+    delete process.env.LIVE_PAYMENTS_PUBLIC
+    assert.equal(checkoutEnabledForUser(false),false)
+    assert.equal(checkoutEnabledForUser(true),true)
+    process.env.LIVE_PAYMENTS_PUBLIC='true'
+    assert.equal(checkoutEnabledForUser(false),true)
+    process.env.LIVE_PAYMENTS_PUBLIC='false'
+    delete process.env.LIVE_PAYMENTS_APPROVED
+    assert.equal(checkoutEnabledForUser(false),false)
+    assert.equal(checkoutEnabledForUser(true),false)
+    process.env.LIVE_PAYMENTS_APPROVED='true'
+    process.env.RENDER_SERVICE_ID='srv-dbs3comi0phs73c0s1dg'
+    assert.equal(checkoutEnabledForUser(false),false)
+    assert.equal(checkoutEnabledForUser(true),false)
+  }finally{
+    for(const key of keys){
+      if(originals[key]===undefined)delete process.env[key]
+      else process.env[key]=originals[key]
+    }
   }
 })
